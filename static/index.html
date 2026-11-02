@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Карточка товара — помощник для контент-менеджера</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar__inner">
+      <div class="brand">
+        <span class="brand__mark" aria-hidden="true"></span>
+        <div>
+          <h1 class="brand__title">Карточка товара</h1>
+          <p class="brand__subtitle">Черновик описания для B2B-магазина КИПиА</p>
+        </div>
+      </div>
+      <a class="docs-link" href="/docs" target="_blank" rel="noopener">API&nbsp;→</a>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- ЛЕВАЯ КОЛОНКА: входные данные и настройки модели -->
+    <section class="panel" aria-label="Данные товара">
+      <div class="panel__head">
+        <h2>Данные прибора</h2>
+        <select id="example-select" class="select select--small" aria-label="Загрузить пример">
+          <option value="">Пример JSON…</option>
+        </select>
+      </div>
+
+      <label class="field">
+        <span class="field__label">JSON товара</span>
+        <textarea id="product-json" class="textarea textarea--code" spellcheck="false"></textarea>
+      </label>
+
+      <div class="row row--between">
+        <button id="analyze-btn" class="btn btn--ghost" type="button">Проверить данные</button>
+        <span class="hint">Проверка полноты выполняется без обращения к модели</span>
+      </div>
+
+      <div id="gaps" class="gaps" hidden></div>
+
+      <details class="settings" open>
+        <summary>Модель и ключ</summary>
+        <div class="settings__body">
+          <label class="field">
+            <span class="field__label">Провайдер</span>
+            <select id="provider" class="select"></select>
+          </label>
+
+          <label class="field">
+            <span class="field__label">Модель</span>
+            <input id="model" class="input" type="text" autocomplete="off" spellcheck="false" />
+          </label>
+
+          <label class="field" id="base-url-field" hidden>
+            <span class="field__label">Base URL (OpenAI-совместимый endpoint)</span>
+            <input id="base-url" class="input" type="text" autocomplete="off" spellcheck="false"
+                   placeholder="https://api.example.com/v1" />
+          </label>
+
+          <label class="field" id="api-key-field">
+            <span class="field__label">Ключ API</span>
+            <span class="input-group">
+              <input id="api-key" class="input" type="password" autocomplete="off" spellcheck="false"
+                     placeholder="Можно оставить пустым, если ключ задан в .env" />
+              <button id="toggle-key" class="icon-btn" type="button" aria-label="Показать ключ" aria-pressed="false">
+                <span aria-hidden="true">👁</span>
+              </button>
+            </span>
+            <span class="field__hint">
+              Ключ передаётся только в этом запросе и не сохраняется ни в браузере, ни на сервере.
+            </span>
+          </label>
+        </div>
+      </details>
+
+      <button id="generate-btn" class="btn btn--primary btn--wide" type="button">
+        Сформировать карточку
+      </button>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+    </section>
+
+    <!-- ПРАВАЯ КОЛОНКА: результат -->
+    <section class="panel panel--result" aria-label="Результат">
+      <div class="panel__head">
+        <div class="tabs" role="tablist">
+          <button class="tab tab--active" data-tab="markdown" role="tab" aria-selected="true">Карточка</button>
+          <button class="tab" data-tab="json" role="tab" aria-selected="false">JSON</button>
+        </div>
+        <div class="panel__actions">
+          <button id="download-btn" class="btn btn--ghost btn--small" type="button" disabled>Скачать .md</button>
+          <button id="copy-btn" class="btn btn--ghost btn--small" type="button" disabled>Копировать</button>
+        </div>
+      </div>
+
+      <div id="empty" class="empty">
+        <p class="empty__title">Здесь появится готовый черновик</p>
+        <p class="empty__text">
+          Заполните JSON слева и нажмите «Сформировать карточку». Сервис соберёт SEO-заголовок,
+          описание, характеристики, поисковые запросы и коммерческий блок.
+        </p>
+      </div>
+
+      <pre id="result-md" class="result result--markdown" hidden></pre>
+      <pre id="result-json" class="result result--code" hidden></pre>
+
+      <div id="result-meta" class="meta" hidden></div>
+      <div id="result-warnings" class="gaps gaps--warn" hidden></div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>Прототип: FastAPI + Pydantic + LLM API. Технические значения берутся только из входных данных.</span>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
