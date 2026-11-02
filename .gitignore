@@ -1,0 +1,15 @@
+# --- служебное ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.DS_Store
+.sdd/
+.pytest_cache/
+
+# --- секреты ---
+# Ключи API хранятся только локально и никогда не попадают в репозиторий
+.env
+.env.*
+!.env.example
+*.key
