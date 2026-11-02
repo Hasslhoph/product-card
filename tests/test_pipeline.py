@@ -154,12 +154,104 @@ def test_renamed_characteristic_keeps_value_from_source_key() -> None:
     assert item.value == "G1/2"
 
 
+def test_empty_title_falls_back_to_product_name() -> None:
+    import json
+
+    card = build_mock_card(PRODUCT_JSON)
+    card["seo_title"] = ""
+    client = ScriptedClient([json.dumps(card, ensure_ascii=False)])
+
+    result = asyncio.run(generate_card(_product(), client, max_repairs=0))
+
+    assert result.card.seo_title
+    assert "МП3-У" in result.card.seo_title
+
+
+def test_query_with_invented_number_is_dropped() -> None:
+    import json
+
+    card = build_mock_card(PRODUCT_JSON)
+    card["search_queries"] = [
+        "манометр мп3-у на 250 бар купить",
+        "манометр мп3-у цена",
+        "манометр мп3-у характеристики",
+    ]
+    client = ScriptedClient([json.dumps(card, ensure_ascii=False)])
+
+    result = asyncio.run(generate_card(_product(), client, max_repairs=0))
+
+    assert all("250" not in query for query in result.card.search_queries)
+    assert any("250" in warning for warning in result.card.warnings)
+
+
+def test_unsupported_claim_is_removed_from_description() -> None:
+    import json
+
+    card = build_mock_card(PRODUCT_JSON)
+    card["seo_description"] += " Корпус выполнен из нержавеющей стали."
+    client = ScriptedClient(
+        [json.dumps(card, ensure_ascii=False), json.dumps(card, ensure_ascii=False)]
+    )
+
+    result = asyncio.run(generate_card(_product(), client))
+
+    assert "нержавеющ" not in result.card.seo_description.lower()
+    assert any("нержавеющ" in warning for warning in result.card.warnings)
+
+
+def test_wrong_label_is_replaced_by_real_key() -> None:
+    """Значение не должно попадать под чужую подпись."""
+    import json
+
+    card = build_mock_card(PRODUCT_JSON)
+    card["characteristics"] = [{"name": "Гарантия", "source_key": "Диаметр корпуса"}]
+    client = ScriptedClient([json.dumps(card, ensure_ascii=False)])
+
+    result = asyncio.run(generate_card(_product(), client, max_repairs=0))
+
+    labels = {item.name for item in result.card.characteristics}
+    assert "Гарантия" not in labels
+    diameter = next(item for item in result.card.characteristics if item.name == "Диаметр корпуса")
+    assert diameter.value == "100 мм"
+
+
+def test_failed_repair_keeps_first_valid_card() -> None:
+    import json
+
+    good_card = build_mock_card(PRODUCT_JSON)
+    good_card["seo_title"] = "Очень длинный заголовок " * 5
+    client = ScriptedClient(
+        [json.dumps(good_card, ensure_ascii=False), "Извините, не могу ответить"]
+    )
+
+    result = asyncio.run(generate_card(_product(), client))
+
+    assert result.card.seo_title
+    assert any("Повторный запрос не удался" in warning for warning in result.card.warnings)
+
+
+def test_field_described_in_text_is_not_reported_missing() -> None:
+    product = ProductInput.model_validate(
+        {
+            "name": "Манометр",
+            "specs": {},
+            "description": "Прибор для измерения давления воды, пара и газа.",
+        }
+    )
+
+    report = analyze_product(product)
+
+    assert "Измеряемая среда" not in report.missing
+
+
 def test_analysis_reports_missing_fields_without_llm_call() -> None:
     report = analyze_product(_product())
 
     assert report.family == "manometer"
     assert "Диапазон измерений" in report.present
-    assert "Измеряемая среда" in report.missing
+    # Измеряемая среда упомянута в описании техпаспорта — значит она не «отсутствует».
+    assert "Измеряемая среда" in report.present
+    assert "Материал корпуса" in report.missing
     assert report.can_generate is True
 
 

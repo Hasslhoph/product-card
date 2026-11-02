@@ -11,7 +11,11 @@ import pytest
 from pydantic import ValidationError
 
 from app.core.builder import build_characteristics
-from app.core.guard import find_unsupported_numbers, sanitize_unsupported
+from app.core.guard import (
+    find_unsupported_claims,
+    find_unsupported_numbers,
+    sanitize_unsupported,
+)
 from app.core.profiles import detect_profile, find_missing_fields
 from app.models import ProductInput
 
@@ -142,11 +146,54 @@ def test_unsupported_sentences_are_removed() -> None:
     source = "Прибор для измерения давления. Диаметр корпуса 100 мм."
     text = "Прибор для измерения давления. Работает при 250 °C. Диаметр корпуса 100 мм."
 
-    cleaned, removed = sanitize_unsupported(text, source)
+    cleaned, removed, claims = sanitize_unsupported(text, source)
 
     assert "250" not in cleaned
     assert "Диаметр корпуса 100 мм." in cleaned
     assert removed == ["250"]
+    assert claims == []
+
+
+def test_substring_number_is_not_confirmed() -> None:
+    """«10» не должно подтверждаться числом «100»."""
+    source = "Диаметр корпуса 100 мм. Класс точности 1,5."
+
+    assert find_unsupported_numbers("Давление до 10 бар.", source) == ["10"]
+    assert find_unsupported_numbers("Работает при 5 °C.", source) == ["5"]
+
+
+def test_unsupported_material_claim_is_detected() -> None:
+    source = "Диаметр корпуса 100 мм."
+    text = "Корпус выполнен из нержавеющей стали, прибор внесён в Госреестр."
+
+    assert "нержавеющ" in find_unsupported_claims(text, source)
+    assert "госреестр" in find_unsupported_claims(text, source)
+
+
+def test_claims_present_in_source_are_allowed() -> None:
+    source = "Корпус из нержавеющей стали. Поставляется с заводской поверкой."
+
+    assert find_unsupported_claims("Корпус из нержавеющей стали.", source) == []
+
+
+def test_decimal_numbers_survive_sanitizing() -> None:
+    source = "Класс точности 0,7"
+    text = "Первый абзац.\n\nКласс точности 0.7 кг.\n\nТретий абзац."
+
+    cleaned, removed, _ = sanitize_unsupported(text, source)
+
+    assert "0.7" in cleaned
+    assert "0. 7" not in cleaned
+    assert removed == []
+
+
+def test_paragraphs_are_preserved() -> None:
+    source = "Прибор для измерения давления."
+    text = "Первый абзац.\n\nВторой абзац.\n\nТретий абзац."
+
+    cleaned, _, _ = sanitize_unsupported(text, source)
+
+    assert cleaned.count("\n") == 2
 
 
 # --------------------------------------------------------------------------

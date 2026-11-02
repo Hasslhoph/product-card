@@ -62,7 +62,7 @@ def parse_json_object(text: str) -> dict[str, Any]:
 
 def redact(text: str, secret: str) -> str:
     """Убирает ключ из текста ошибки, чтобы он не попал в логи и в ответ API."""
-    if secret and len(secret) >= 8:
+    if secret and len(secret) >= 4:
         return text.replace(secret, "***")
     return text
 

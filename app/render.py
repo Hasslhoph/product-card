@@ -15,6 +15,11 @@ def _escape(value: str) -> str:
     return value.replace("|", "\\|").replace("\n", " ").strip()
 
 
+def _inline(value: str) -> str:
+    """Заголовки и подписи — в одну строку, без управляющих символов."""
+    return " ".join(str(value).split())
+
+
 def to_markdown(
     card: ProductCard,
     product: ProductInput,
@@ -27,11 +32,11 @@ def to_markdown(
 ) -> str:
     """Готовый к копированию текст карточки для контент-менеджера."""
     lines: list[str] = []
-    lines.append(f"# {product.name}")
+    lines.append(f"# {_inline(product.name)}")
     lines.append("")
-    lines.append(f"**Производитель:** {product.manufacturer or MISSING_VALUE}")
+    lines.append(f"**Производитель:** {_inline(product.manufacturer) or MISSING_VALUE}")
     if family_title:
-        lines.append(f"**Семейство:** {family_title}")
+        lines.append(f"**Семейство:** {_inline(family_title)}")
     lines.append("")
 
     lines.append(f"## SEO-заголовок · {len(card.seo_title)}/{TITLE_LIMIT}")

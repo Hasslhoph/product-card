@@ -37,11 +37,12 @@ class GoogleClient:
             raise LLMConfigError(f"{self.name}: не задана модель")
 
         data = await post_json(
-            f"{self.base_url}/models/{self.model}:generateContent?key={self.api_key}",
+            f"{self.base_url}/models/{self.model}:generateContent",
             headers={
                 "Content-Type": "application/json",
                 "User-Agent": self.user_agent,
                 **self.extra_headers,
+                "x-goog-api-key": self.api_key,
             },
             payload={
                 "systemInstruction": {"parts": [{"text": request.system}]},

@@ -72,7 +72,7 @@ MANOMETER = Profile(
         SpecField(
             "измеряемая среда",
             "Измеряемая среда",
-            ("измеряемая среда", "рабочая среда", "среда"),
+            ("измеряемая среда", "рабочая среда", "среда", "вода", "пар", "газ", "жидкост", "воздух"),
             hint="вода, пар, газ, хладоны и т. п.",
         ),
         SpecField(
@@ -260,11 +260,24 @@ def find_matching_key(specs: dict[str, str], field: SpecField) -> str | None:
     return None
 
 
-def find_missing_fields(specs: dict[str, str], profile: Profile) -> list[str]:
-    """Возвращает канонические ключи полей, которых нет во входных данных."""
+def find_missing_fields(
+    specs: dict[str, str], profile: Profile, description: str = ""
+) -> list[str]:
+    """Возвращает канонические ключи полей, которых нет во входных данных.
+
+    Описание тоже считается источником: если характеристика упомянута в
+    тексте техпаспорта, нечестно сообщать «данных нет» и запрещать модели
+    её использовать.
+    """
+    description_norm = normalize(description)
     missing: list[str] = []
     for field in profile.fields:
         key = find_matching_key(specs, field)
-        if key is None or not specs.get(key, "").strip():
-            missing.append(field.key)
+        if key is not None and specs.get(key, "").strip():
+            continue
+        if description_norm and any(
+            normalize(synonym) in description_norm for synonym in field.synonyms
+        ):
+            continue
+        missing.append(field.key)
     return missing

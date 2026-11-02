@@ -15,10 +15,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+#: Модели по умолчанию там, где название стабильно. Для Anthropic и Google
+#: модель нужно указать явно: линейка моделей меняется чаще, чем наш код.
 DEFAULT_MODELS = {
     "openai": "gpt-4o-mini",
-    "anthropic": "claude-3-5-haiku-latest",
-    "google": "gemini-2.0-flash",
+    "anthropic": "",
+    "google": "",
     "openai_compatible": "deepseek-v4.1-flash",
     "mock": "mock",
 }

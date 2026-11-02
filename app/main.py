@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
+import socket
 from typing import Any
+from urllib.parse import urlparse
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 
@@ -32,6 +36,54 @@ app = FastAPI(
 
 if STATIC_DIR.is_dir():
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+#: Адреса, для которых разрешён http и локальная сеть (локальная разработка).
+LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Не возвращаем клиенту исходные значения — в них может быть ключ API."""
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": [
+                {
+                    "field": ".".join(str(part) for part in error.get("loc", ())),
+                    "message": error.get("msg", "некорректное значение"),
+                }
+                for error in exc.errors()
+            ]
+        },
+    )
+
+
+def _validate_base_url(raw: str) -> str:
+    """Проверяет адрес endpoint'а: без него ключ можно увести на чужой хост."""
+    parsed = urlparse(raw.strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise HTTPException(400, detail="base_url должен быть полным URL вида https://host/v1")
+    host = parsed.hostname
+    if parsed.scheme == "http" and host not in LOCAL_HOSTS:
+        raise HTTPException(400, detail="base_url: для внешних адресов используйте https")
+
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        resolved = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+    except OSError:
+        raise HTTPException(400, detail=f"base_url: не удалось разрешить хост «{host}»") from None
+
+    for *_, sockaddr in resolved:
+        address = ipaddress.ip_address(sockaddr[0])
+        if address.is_loopback or address.is_private or address.is_link_local:
+            if host not in LOCAL_HOSTS:
+                raise HTTPException(
+                    400,
+                    detail="base_url: внутренние адреса запрещены",
+                )
+        if address.is_reserved or address.is_multicast:
+            raise HTTPException(400, detail="base_url: служебные адреса запрещены")
+    return raw.strip()
 
 
 class LLMOptions(BaseModel):
@@ -77,17 +129,35 @@ def _resolve_options(options: LLMOptions) -> dict[str, Any]:
             status_code=400,
             detail=f"Неизвестный провайдер «{provider}». Доступны: {', '.join(SUPPORTED_PROVIDERS)}",
         )
+
+    requested_base_url = (options.base_url or "").strip()
+    if requested_base_url:
+        _validate_base_url(requested_base_url)
+
     same_provider = provider == settings.provider
+    # Ключ из .env отправляем только на адрес из .env. Если клиент подставил
+    # свой base_url, ключ обязан прийти вместе с запросом — иначе серверный
+    # секрет утёк бы на чужой хост.
+    uses_configured_endpoint = (
+        not requested_base_url
+        or requested_base_url.rstrip("/") == settings.base_url.rstrip("/")
+    )
+    api_key = (options.api_key or "").strip()
+    if not api_key and same_provider and uses_configured_endpoint:
+        api_key = settings.api_key
+
+    base_url = requested_base_url or (settings.base_url if same_provider else "")
+
     return {
         "provider": provider,
-        "api_key": (options.api_key or (settings.api_key if same_provider else "")).strip(),
+        "api_key": api_key,
         "model": (options.model or (settings.model if same_provider else "")).strip()
         or DEFAULT_MODELS.get(provider, ""),
-        "base_url": (options.base_url or (settings.base_url if same_provider else "")).strip(),
+        "base_url": base_url,
         "temperature": options.temperature if options.temperature is not None else settings.temperature,
         "timeout": settings.timeout,
         "user_agent": settings.user_agent,
-        "extra_headers": settings.extra_headers,
+        "extra_headers": settings.extra_headers if uses_configured_endpoint else {},
     }
 
 

@@ -59,7 +59,7 @@ def build_mock_card(product: dict) -> dict:
         queries.append(f"{manufacturer} {name}")
 
     return {
-        "seo_title": f"{name} — характеристики, описание и цена",
+        "seo_title": name,
         "seo_description": " ".join(parts),
         "characteristics": [{"name": key, "source_key": key} for key in specs],
         "search_queries": queries,

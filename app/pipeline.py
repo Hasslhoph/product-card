@@ -15,9 +15,13 @@ from pathlib import Path
 from typing import Any
 
 from app.core.builder import build_characteristics
-from app.core.guard import find_unsupported_numbers, sanitize_unsupported
+from app.core.guard import (
+    find_unsupported_claims,
+    find_unsupported_numbers,
+    sanitize_unsupported,
+)
 from app.core.profiles import detect_profile, find_missing_fields, get_profile
-from app.llm.base import LLMClient, LLMRequest, parse_json_object
+from app.llm.base import LLMClient, LLMError, LLMRequest, parse_json_object
 from app.models import (
     MISSING_VALUE,
     CompletenessReport,
@@ -66,7 +70,7 @@ class GenerationResult:
 
 def analyze_product(product: ProductInput) -> CompletenessReport:
     profile = detect_profile(product.name, product.description)
-    missing_keys = find_missing_fields(product.specs, profile)
+    missing_keys = find_missing_fields(product.specs, profile, product.description)
     missing_set = set(missing_keys)
     found = [field.title for field in profile.fields if field.key not in missing_set]
     titles = {field.key: field.title for field in profile.fields}
@@ -97,6 +101,8 @@ def analyze_product(product: ProductInput) -> CompletenessReport:
 
 def build_request(product: ProductInput, profile_title: str, missing: list[str]) -> LLMRequest:
     product_json = json.dumps(product.model_dump(), ensure_ascii=False, indent=2)
+    # Данные товара не должны уметь «закрыть» блок кода и дописать инструкции.
+    product_json = product_json.replace("```", "'''")
     user = USER_TEMPLATE.format(
         product_json=product_json,
         family_title=profile_title,
@@ -148,7 +154,7 @@ def _clean_queries(value: Any) -> list[str]:
 
     result: list[str] = []
     for part in parts:
-        query = _clean_line(part).strip("-•*").strip('"').lower()
+        query = _clean_line(part).strip("-•*").strip('"')
         query = re.sub(r"^\d+[.)]\s*", "", query)
         if query and query not in result:
             result.append(query)
@@ -203,35 +209,55 @@ def collect_problems(card: ProductCard, source: str) -> list[str]:
     if not card.characteristics:
         problems.append("список характеристик пустой")
 
-    text = " ".join([card.seo_title, card.seo_description, card.commercial_block])
+    text = " ".join(
+        [
+            card.seo_title,
+            card.seo_description,
+            card.commercial_block,
+            " ".join(card.search_queries),
+        ]
+    )
     unsupported = find_unsupported_numbers(text, source)
+    unsupported_claims = find_unsupported_claims(text, source)
     if unsupported:
         problems.append(
             "в тексте есть значения, которых нет во входных данных: " + ", ".join(unsupported)
+        )
+    if unsupported_claims:
+        problems.append(
+            "в тексте есть утверждения, которых нет во входных данных: "
+            + ", ".join(unsupported_claims)
         )
 
     return problems
 
 
-def _truncate_title(title: str, fallback: str) -> str:
-    if len(title) <= TITLE_LIMIT:
-        return title
-    cut = title[:TITLE_LIMIT]
+def _clip(text: str, limit: int) -> str:
+    """Обрезает строку по границе слова, не оставляя висящей запятой."""
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
     if " " in cut:
         cut = cut[: cut.rfind(" ")]
-    return cut.rstrip(" -—–,;:.") or fallback[:TITLE_LIMIT]
+    return cut.rstrip(" -—–,;:.")
+
+
+def _truncate_title(title: str, fallback: str) -> str:
+    title = title.strip() or fallback.strip()
+    clipped = _clip(title, TITLE_LIMIT)
+    return clipped or _clip(fallback.strip(), TITLE_LIMIT)
 
 
 def _fit_description(text: str) -> tuple[str, bool]:
     """Приводит описание к диапазону 800–1200 символов. Возвращает (текст, добито ли)."""
     if len(text) > DESC_MAX:
         cut = text[:DESC_MAX]
-        boundary = max(cut.rfind(". "), cut.rfind("\n"))
+        boundary = max(cut.rfind(". "), cut.rfind(".\n"), cut.rfind("\n\n"))
         if boundary > DESC_MIN:
             cut = cut[: boundary + 1]
         else:
             cut = cut[: cut.rfind(" ")] if " " in cut else cut
-        return cut.strip(), False
+        text = cut.strip()
 
     padded = False
     for sentence in NEUTRAL_SENTENCES:
@@ -242,28 +268,42 @@ def _fit_description(text: str) -> tuple[str, bool]:
     return text, padded
 
 
-def _fit_queries(queries: list[str], product: ProductInput) -> list[str]:
-    result = queries[:QUERIES_MAX]
-    name = product.name.lower()
+def _fit_queries(
+    queries: list[str], product: ProductInput, source: str
+) -> tuple[list[str], list[str], list[str]]:
+    """Отбрасывает запросы с неподтверждёнными данными и добивает до минимума."""
+    result: list[str] = []
+    removed_numbers: list[str] = []
+    removed_claims: list[str] = []
+
+    for query in queries:
+        bad_numbers = find_unsupported_numbers(query, source)
+        bad_claims = find_unsupported_claims(query, source)
+        if bad_numbers or bad_claims:
+            removed_numbers.extend(n for n in bad_numbers if n not in removed_numbers)
+            removed_claims.extend(c for c in bad_claims if c not in removed_claims)
+            continue
+        if query not in result:
+            result.append(query)
+
     fallback = (
-        f"{name} купить",
-        f"{name} характеристики",
-        f"{name} цена",
+        f"{product.name} купить",
+        f"{product.name} характеристики",
+        f"{product.name} цена",
     )
     for candidate in fallback:
         if len(result) >= QUERIES_MIN:
             break
         if candidate not in result:
             result.append(candidate)
-    return result[:QUERIES_MAX]
+
+    return result[:QUERIES_MAX], removed_numbers, removed_claims
 
 
 def _finalize(
     card: ProductCard,
     product: ProductInput,
-    profile_id: str,
     missing_titles: list[str],
-    remaining_problems: list[str],
     builder_warnings: list[str],
 ) -> None:
     """Детерминированная доводка карточки после ответа модели."""
@@ -271,29 +311,45 @@ def _finalize(
     warnings: list[str] = list(builder_warnings)
 
     removed_numbers: list[str] = []
-    for field_name in ("seo_title", "seo_description", "commercial_block"):
-        cleaned, removed = sanitize_unsupported(getattr(card, field_name), source)
-        setattr(card, field_name, cleaned)
-        removed_numbers.extend(number for number in removed if number not in removed_numbers)
+    removed_claims: list[str] = []
+
+    title, numbers, claims = sanitize_unsupported(card.seo_title, source)
+    removed_numbers.extend(numbers)
+    removed_claims.extend(claims)
+    card.seo_title = _truncate_title(title, product.name)
+
+    description, numbers, claims = sanitize_unsupported(card.seo_description, source)
+    removed_numbers.extend(n for n in numbers if n not in removed_numbers)
+    removed_claims.extend(c for c in claims if c not in removed_claims)
+    card.seo_description, padded = _fit_description(description)
+
+    commercial, numbers, claims = sanitize_unsupported(card.commercial_block, source)
+    removed_numbers.extend(n for n in numbers if n not in removed_numbers)
+    removed_claims.extend(c for c in claims if c not in removed_claims)
+    card.commercial_block = commercial.strip()
+
+    card.search_queries, numbers, claims = _fit_queries(card.search_queries, product, source)
+    removed_numbers.extend(n for n in numbers if n not in removed_numbers)
+    removed_claims.extend(c for c in claims if c not in removed_claims)
+
     if removed_numbers:
         warnings.append(
             "Удалены значения, которых нет во входных данных: " + ", ".join(removed_numbers)
         )
-
-    card.seo_title = _truncate_title(card.seo_title.strip(), product.name)
-    card.seo_description, padded = _fit_description(card.seo_description.strip())
+    if removed_claims:
+        warnings.append(
+            "Удалены утверждения, которых нет во входных данных: "
+            + ", ".join(removed_claims)
+        )
     if padded:
         warnings.append(
             "Описание дополнено нейтральными фразами без технических фактов "
             "до нижней границы объёма."
         )
-    card.search_queries = _fit_queries(card.search_queries, product)
-    card.commercial_block = card.commercial_block.strip()
 
-    if remaining_problems:
-        warnings.append(
-            "Не удалось исправить автоматически: " + "; ".join(remaining_problems)
-        )
+    remaining = collect_problems(card, source)
+    if remaining:
+        warnings.append("Не удалось исправить автоматически: " + "; ".join(remaining))
 
     if len(card.seo_description) < DESC_MIN:
         warnings.append(
@@ -321,7 +377,7 @@ async def generate_card(
 ) -> GenerationResult:
     started = time.perf_counter()
     profile = detect_profile(product.name, product.description)
-    missing_keys = find_missing_fields(product.specs, profile)
+    missing_keys = find_missing_fields(product.specs, profile, product.description)
     titles = {field.key: field.title for field in profile.fields}
     missing_titles = [titles.get(key, key) for key in missing_keys]
 
@@ -333,15 +389,25 @@ async def generate_card(
     card, builder_warnings = _normalize_card(data, product, profile.id)
     problems = collect_problems(card, source)
     attempts = 1
+    repair_notes: list[str] = []
 
     while problems and attempts <= max_repairs:
-        raw = await client.complete_json(build_repair_request(request, problems))
-        data = parse_json_object(raw)
-        card, builder_warnings = _normalize_card(data, product, profile.id)
-        problems = collect_problems(card, source)
+        try:
+            raw = await client.complete_json(build_repair_request(request, problems))
+            data = parse_json_object(raw)
+            repaired_card, repaired_warnings = _normalize_card(data, product, profile.id)
+            repaired_problems = collect_problems(repaired_card, source)
+        except LLMError as exc:
+            # Первая версия карточки уже валидна по структуре — не теряем её
+            # из-за сбоя повторного запроса.
+            repair_notes.append(f"Повторный запрос не удался, оставлена первая версия: {exc}")
+            break
+        card, builder_warnings, problems = repaired_card, repaired_warnings, repaired_problems
         attempts += 1
 
-    _finalize(card, product, profile.id, missing_titles, problems, builder_warnings)
+    _finalize(card, product, missing_titles, builder_warnings)
+    if repair_notes:
+        card.warnings = repair_notes + card.warnings
 
     elapsed_ms = int((time.perf_counter() - started) * 1000)
     markdown = to_markdown(

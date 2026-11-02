@@ -61,9 +61,14 @@ class OpenAICompatibleClient:
                 provider=self.name,
             )
         except LLMError as exc:
-            # Не все совместимые endpoint'ы поддерживают response_format —
-            # в этом случае повторяем запрос без него, JSON всё равно требуется промптом.
-            if "400" not in str(exc):
+            # Не все совместимые endpoint'ы поддерживают response_format.
+            # Повторяем без него только при явной жалобе на этот параметр,
+            # чтобы не маскировать настоящую ошибку запроса.
+            message = str(exc).lower()
+            if not any(
+                marker in message
+                for marker in ("response_format", "response format", "json_object")
+            ):
                 raise
             payload.pop("response_format", None)
             data = await post_json(

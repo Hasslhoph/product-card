@@ -20,12 +20,14 @@ class ProductInput(BaseModel):
 
     model_config = ConfigDict(str_strip_whitespace=True, extra="ignore")
 
-    name: str = Field(min_length=1, description="Название товара")
-    manufacturer: str = Field(default="", description="Производитель")
+    name: str = Field(min_length=1, max_length=300, description="Название товара")
+    manufacturer: str = Field(default="", max_length=200, description="Производитель")
     specs: dict[str, str] = Field(
         default_factory=dict, description="Краткие характеристики: название → значение"
     )
-    description: str = Field(default="", description="Описание или фрагмент техпаспорта")
+    description: str = Field(
+        default="", max_length=20000, description="Описание или фрагмент техпаспорта"
+    )
 
     @field_validator("specs", mode="before")
     @classmethod
@@ -52,8 +54,15 @@ class ProductInput(BaseModel):
                 continue
             key_text = str(key).strip()
             value_text = str(value).strip()
-            if key_text and value_text:
-                result[key_text] = value_text
+            if not key_text or not value_text:
+                continue
+            # Ограничиваем объём: защита от случайной вставки целого
+            # техпаспорта в характеристики и от раздувания стоимости запроса.
+            if len(key_text) > 120 or len(value_text) > 2000:
+                continue
+            result[key_text] = value_text
+            if len(result) >= 100:
+                break
         return result
 
     def source_text(self) -> str:
