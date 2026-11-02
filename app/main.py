@@ -13,7 +13,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.config import DEFAULT_MODELS, PROVIDER_TITLES, load_settings
 from app.llm.base import LLMConfigError, LLMError, LLMResponseError
@@ -28,10 +28,30 @@ BASE_DIR = __import__("pathlib").Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
 EXAMPLES_DIR = BASE_DIR / "examples"
 
+TAGS_METADATA = [
+    {
+        "name": "карточка",
+        "description": "Проверка данных и генерация черновика карточки товара.",
+    },
+    {
+        "name": "служебное",
+        "description": "Провайдеры, примеры данных и проверка живости сервиса.",
+    },
+]
+
 app = FastAPI(
     title="AI-помощник для подготовки товарных описаний",
-    description="Черновик карточки товара для B2B-магазина КИПиА по данным прибора.",
+    description=(
+        "Сервис собирает черновик карточки товара для B2B-магазина КИПиА: "
+        "SEO-заголовок, описание, характеристики, поисковые запросы и коммерческий блок.\n\n"
+        "**Технические значения берутся только из входных данных.** Ответ модели "
+        "проверяется кодом: числа сверяются по токенам, типовые утверждения — по словарю, "
+        "значения характеристик подставляются из `specs` дословно.\n\n"
+        "Ключ API можно не передавать в запросе — тогда используется ключ из `.env`. "
+        "Ключ, переданный в запросе, нигде не сохраняется."
+    ),
     version="1.0.0",
+    openapi_tags=TAGS_METADATA,
 )
 
 if STATIC_DIR.is_dir():
@@ -97,7 +117,27 @@ class LLMOptions(BaseModel):
 
 
 class GenerateRequest(BaseModel):
-    product: dict[str, Any]
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "product": {
+                        "name": "Манометр показывающий МП3-У",
+                        "manufacturer": "Манотомь",
+                        "specs": {
+                            "Диапазон измерений": "0–100 кгс/см²",
+                            "Класс точности": "1,5",
+                            "Диаметр корпуса": "100 мм",
+                        },
+                        "description": "Прибор для измерения избыточного давления.",
+                    },
+                    "llm": {"provider": "mock"},
+                }
+            ]
+        }
+    )
+
+    product: dict[str, Any] = Field(description="Данные товара: name, manufacturer, specs, description")
     llm: LLMOptions = LLMOptions()
 
 
@@ -169,12 +209,12 @@ def index() -> FileResponse:
     return FileResponse(page)
 
 
-@app.get("/health")
+@app.get("/health", tags=["служебное"], summary="Проверка живости")
 def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/api/providers")
+@app.get("/api/providers", tags=["служебное"], summary="Доступные провайдеры LLM")
 def providers() -> dict[str, Any]:
     return {
         "providers": [
@@ -190,7 +230,7 @@ def providers() -> dict[str, Any]:
     }
 
 
-@app.get("/api/examples")
+@app.get("/api/examples", tags=["служебное"], summary="Примеры данных товаров")
 def examples() -> dict[str, Any]:
     """Готовые примеры из каталога examples/ для кнопки «Пример JSON»."""
     items: list[dict[str, Any]] = []
@@ -210,14 +250,38 @@ def examples() -> dict[str, Any]:
     return {"examples": items}
 
 
-@app.post("/api/analyze", response_model=CompletenessReport)
+@app.post(
+    "/api/analyze",
+    response_model=CompletenessReport,
+    tags=["карточка"],
+    summary="Проверить полноту данных",
+    description=(
+        "Определяет семейство прибора и перечисляет характеристики, которых не хватает. "
+        "Модель не вызывается: проверка детерминированная и бесплатная."
+    ),
+)
 def analyze(payload: AnalyzeRequest) -> CompletenessReport:
     """Проверка полноты данных до обращения к модели."""
     product = _parse_product(payload.product)
     return analyze_product(product)
 
 
-@app.post("/api/generate")
+@app.post(
+    "/api/generate",
+    tags=["карточка"],
+    summary="Сформировать карточку товара",
+    description=(
+        "Возвращает карточку в трёх видах: `card` (структура), `markdown` (готовый текст "
+        "для копирования) и `json` (та же карточка строкой). В `meta` — провайдер, модель, "
+        "время и число обращений к модели.\n\n"
+        "Провайдер `mock` собирает карточку по шаблону без обращения к внешнему API."
+    ),
+    responses={
+        400: {"description": "Неизвестный провайдер, не задан ключ или небезопасный base_url"},
+        422: {"description": "Некорректные данные товара"},
+        502: {"description": "Ошибка или недоступность провайдера LLM"},
+    },
+)
 async def generate(payload: GenerateRequest) -> dict[str, Any]:
     product = _parse_product(payload.product)
     options = _resolve_options(payload.llm)
