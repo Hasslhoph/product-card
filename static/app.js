@@ -8,6 +8,7 @@
     markdown: "",
     json: "",
     tab: "markdown",
+    canGenerate: true,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -183,7 +184,15 @@
       } else {
         renderList(els.gaps, "Данные полные — можно генерировать карточку", [], "ok");
       }
-      setStatus("Проверка выполнена");
+
+      state.canGenerate = report.can_generate !== false;
+      els.generateBtn.disabled = !state.canGenerate;
+      setStatus(
+        state.canGenerate
+          ? "Проверка выполнена"
+          : "Данных слишком мало: добавьте характеристики или описание",
+        state.canGenerate ? "" : "error"
+      );
     } catch (error) {
       setStatus(error.message, "error");
     } finally {
@@ -259,7 +268,7 @@
     } catch (error) {
       setStatus(error.message, "error");
     } finally {
-      els.generateBtn.disabled = false;
+      els.generateBtn.disabled = !state.canGenerate;
     }
   }
 
