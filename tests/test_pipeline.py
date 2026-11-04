@@ -267,6 +267,28 @@ def test_claim_from_product_name_is_not_removed() -> None:
     assert "взрывозащищ" in result.card.seo_description.lower()
 
 
+def test_claim_from_name_does_not_trigger_repair() -> None:
+    """Слово из названия не должно считаться выдумкой и вызывать повторный запрос."""
+    import json
+
+    product_json = {
+        "name": "Сигнализатор взрывозащищённый СТГ-1",
+        "manufacturer": "Аналитприбор",
+        "specs": {"Определяемый газ": "метан"},
+        "description": "Прибор для контроля загазованности помещений.",
+    }
+    product = ProductInput.model_validate(product_json)
+    client = ScriptedClient([json.dumps(build_mock_card(product_json), ensure_ascii=False)])
+
+    result = asyncio.run(generate_card(product, client))
+
+    assert len(client.requests) == 1
+    assert result.attempts == 1
+    # Предупреждения об отсутствующих характеристиках — норма, а вот
+    # «удалено утверждение взрывозащ» быть не должно.
+    assert not any("взрывозащ" in warning.lower() for warning in result.card.warnings)
+
+
 def test_field_described_in_text_is_not_reported_missing() -> None:
     product = ProductInput.model_validate(
         {

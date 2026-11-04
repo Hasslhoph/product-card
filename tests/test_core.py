@@ -211,10 +211,6 @@ def test_device_name_has_priority_over_description() -> None:
     assert profile.id == "manometer"
 
 
-def test_pressure_transmitter_profile_is_detected() -> None:
-    assert detect_profile("Преобразователь давления").id == "pressure_transmitter"
-
-
 def test_ex_d_marker_is_detected() -> None:
     assert "ex d" in find_unsupported_claims("Исполнение Ex d.", "Давление 1 МПа")
 

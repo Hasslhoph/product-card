@@ -408,7 +408,7 @@ async def generate_card(
     raw = await client.complete_json(request)
     data = parse_json_object(raw)
     card, builder_warnings = _normalize_card(data, product, profile.id)
-    problems = collect_problems(card, source, name=product.name)
+    problems = collect_problems(card, source, name=product.name, claim_source=claim_source)
     attempts = 1
     repair_notes: list[str] = []
 
@@ -417,7 +417,9 @@ async def generate_card(
             raw = await client.complete_json(build_repair_request(request, problems))
             data = parse_json_object(raw)
             repaired_card, repaired_warnings = _normalize_card(data, product, profile.id)
-            repaired_problems = collect_problems(repaired_card, source, name=product.name)
+            repaired_problems = collect_problems(
+                repaired_card, source, name=product.name, claim_source=claim_source
+            )
         except LLMError as exc:
             # Первая версия карточки уже валидна по структуре — не теряем её
             # из-за сбоя повторного запроса.
