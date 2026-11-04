@@ -178,7 +178,13 @@ def _normalize_card(
     return card, warnings
 
 
-def collect_problems(card: ProductCard, source: str, *, name: str = "") -> list[str]:
+def collect_problems(
+    card: ProductCard,
+    source: str,
+    *,
+    name: str = "",
+    claim_source: str | None = None,
+) -> list[str]:
     """Нарушения требований задания, которые видны без семантики."""
     problems: list[str] = []
 
@@ -219,7 +225,9 @@ def collect_problems(card: ProductCard, source: str, *, name: str = "") -> list[
         ]
     )
     unsupported = find_unsupported_numbers(text, source, name=name)
-    unsupported_claims = find_unsupported_claims(text, source)
+    unsupported_claims = find_unsupported_claims(
+        text, claim_source if claim_source is not None else source
+    )
     if unsupported:
         problems.append(
             "в тексте есть значения, которых нет во входных данных: " + ", ".join(unsupported)
@@ -270,16 +278,18 @@ def _fit_description(text: str) -> tuple[str, bool]:
 
 
 def _fit_queries(
-    queries: list[str], product: ProductInput, source: str
+    queries: list[str], product: ProductInput
 ) -> tuple[list[str], list[str], list[str]]:
     """Отбрасывает запросы с неподтверждёнными данными и добивает до минимума."""
+    source = product.fact_text()
+    claim_source = product.source_text()
     result: list[str] = []
     removed_numbers: list[str] = []
     removed_claims: list[str] = []
 
     for query in queries:
         bad_numbers = find_unsupported_numbers(query, source, name=product.name)
-        bad_claims = find_unsupported_claims(query, source)
+        bad_claims = find_unsupported_claims(query, claim_source)
         if bad_numbers or bad_claims:
             removed_numbers.extend(n for n in bad_numbers if n not in removed_numbers)
             removed_claims.extend(c for c in bad_claims if c not in removed_claims)
@@ -309,31 +319,34 @@ def _finalize(
 ) -> None:
     """Детерминированная доводка карточки после ответа модели."""
     source = product.fact_text()
+    claim_source = product.source_text()
     warnings: list[str] = list(builder_warnings)
 
     removed_numbers: list[str] = []
     removed_claims: list[str] = []
 
-    title, numbers, claims = sanitize_unsupported(card.seo_title, source, name=product.name)
+    title, numbers, claims = sanitize_unsupported(
+        card.seo_title, source, name=product.name, claims_source=claim_source
+    )
     removed_numbers.extend(numbers)
     removed_claims.extend(claims)
     card.seo_title = _truncate_title(title, product.name)
 
     description, numbers, claims = sanitize_unsupported(
-        card.seo_description, source, name=product.name
+        card.seo_description, source, name=product.name, claims_source=claim_source
     )
     removed_numbers.extend(n for n in numbers if n not in removed_numbers)
     removed_claims.extend(c for c in claims if c not in removed_claims)
     card.seo_description, padded = _fit_description(description)
 
     commercial, numbers, claims = sanitize_unsupported(
-        card.commercial_block, source, name=product.name
+        card.commercial_block, source, name=product.name, claims_source=claim_source
     )
     removed_numbers.extend(n for n in numbers if n not in removed_numbers)
     removed_claims.extend(c for c in claims if c not in removed_claims)
     card.commercial_block = commercial.strip()
 
-    card.search_queries, numbers, claims = _fit_queries(card.search_queries, product, source)
+    card.search_queries, numbers, claims = _fit_queries(card.search_queries, product)
     removed_numbers.extend(n for n in numbers if n not in removed_numbers)
     removed_claims.extend(c for c in claims if c not in removed_claims)
 
@@ -352,7 +365,9 @@ def _finalize(
             "до нижней границы объёма."
         )
 
-    remaining = collect_problems(card, source, name=product.name)
+    remaining = collect_problems(
+        card, source, name=product.name, claim_source=claim_source
+    )
     if remaining:
         warnings.append("Не удалось исправить автоматически: " + "; ".join(remaining))
 
@@ -388,6 +403,7 @@ async def generate_card(
 
     request = build_request(product, profile.title, missing_titles)
     source = product.fact_text()
+    claim_source = product.source_text()
 
     raw = await client.complete_json(request)
     data = parse_json_object(raw)

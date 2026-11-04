@@ -249,6 +249,24 @@ def test_failed_repair_keeps_first_valid_card() -> None:
     assert any("Повторный запрос не удался" in warning for warning in result.card.warnings)
 
 
+def test_claim_from_product_name_is_not_removed() -> None:
+    """Название товара — тоже факт: «взрывозащищённый» в названии не выдумка."""
+    import json
+
+    product_json = {
+        "name": "Сигнализатор взрывозащищённый СТГ-1",
+        "manufacturer": "Аналитприбор",
+        "specs": {"Определяемый газ": "метан"},
+        "description": "Прибор для контроля загазованности помещений.",
+    }
+    product = ProductInput.model_validate(product_json)
+    client = ScriptedClient([json.dumps(build_mock_card(product_json), ensure_ascii=False)])
+
+    result = asyncio.run(generate_card(product, client, max_repairs=0))
+
+    assert "взрывозащищ" in result.card.seo_description.lower()
+
+
 def test_field_described_in_text_is_not_reported_missing() -> None:
     product = ProductInput.model_validate(
         {

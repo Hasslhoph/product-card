@@ -38,6 +38,7 @@ CLAIM_MARKERS: tuple[tuple[str, str], ...] = (
     ("iecex", "взрывозащита"),
     ("exi", "взрывозащита"),
     ("exd", "взрывозащита"),
+    ("ex d", "взрывозащита"),
     ("оригинальн", "происхождение"),
 )
 
@@ -99,14 +100,24 @@ def find_unsupported_claims(text: str, source: str) -> list[str]:
 
 
 def sanitize_unsupported(
-    text: str, source: str, *, name: str = ""
+    text: str,
+    source: str,
+    *,
+    name: str = "",
+    claims_source: str | None = None,
 ) -> tuple[str, list[str], list[str]]:
     """Удаляет предложения с неподтверждёнными числами и утверждениями.
 
     Возвращает очищенный текст, список удалённых чисел и список удалённых
     утверждений. Пустые строки между абзацами сохраняются, чтобы описание
     не превращалось в один сплошной блок.
+
+    Источники разные: числа сверяются с ``source`` (без названия, чтобы цифры
+    артикула не подтверждали любые значения), а утверждения — с
+    ``claims_source`` по умолчанию, куда название входит: название товара само
+    является фактом.
     """
+    claim_source = claims_source if claims_source is not None else source
     removed_numbers: list[str] = []
     removed_claims: list[str] = []
     paragraphs: list[str] = []
@@ -117,7 +128,7 @@ def sanitize_unsupported(
         kept: list[str] = []
         for sentence in _split_sentences(block.replace("\n", " ")):
             bad_numbers = find_unsupported_numbers(sentence, source, name=name)
-            bad_claims = find_unsupported_claims(sentence, source)
+            bad_claims = find_unsupported_claims(sentence, claim_source)
             if bad_numbers or bad_claims:
                 removed_numbers.extend(n for n in bad_numbers if n not in removed_numbers)
                 removed_claims.extend(c for c in bad_claims if c not in removed_claims)

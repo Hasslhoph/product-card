@@ -211,11 +211,14 @@ FLOWMETER = Profile(
 PRESSURE_TRANSMITTER = Profile(
     id="pressure_transmitter",
     title="Преобразователь / датчик давления",
+    # Только устойчивые словосочетания: одиночное «давления» встречается
+    # в описании любого манометра и уводило прибор в чужой профиль.
     keywords=(
         "преобразователь давления",
-        "датчик давления",
         "преобразовател давления",
-        "давления",
+        "датчик давления",
+        "датчик-реле давления",
+        "преобразователь избыточного давления",
     ),
     fields=(
         SpecField(
@@ -287,19 +290,31 @@ def get_profile(profile_id: str) -> Profile:
 def detect_profile(name: str, description: str = "") -> Profile:
     """Определяет семейство прибора по названию и описанию.
 
-    Если ни одно семейство не угадывается — возвращается универсальный профиль:
-    сервис продолжает работать, просто не подсказывает специфичные поля.
+    Название весит больше описания: в описании манометра почти всегда есть
+    слово «давление», и без приоритета такой прибор уезжает в профиль
+    преобразователя давления. Описание используется, только если по названию
+    семейство не определилось.
+
+    Если не угадывается ничего — универсальный профиль: сервис продолжает
+    работать, просто подсказки менее точные.
     """
-    haystack = normalize(f"{name} {description}")
-    best = GENERIC
-    best_score = 0
-    for profile in ALL_PROFILES:
-        if not profile.keywords:
-            continue
-        score = sum(1 for keyword in profile.keywords if normalize(keyword) in haystack)
-        if score > best_score:
-            best, best_score = profile, score
-    return best
+
+    name_norm = normalize(name)
+    description_norm = normalize(description)
+
+    for haystack in (name_norm, description_norm):
+        best: Profile | None = None
+        best_score = 0
+        for profile in ALL_PROFILES:
+            if not profile.keywords:
+                continue
+            score = sum(1 for keyword in profile.keywords if normalize(keyword) in haystack)
+            if score > best_score:
+                best, best_score = profile, score
+        if best is not None:
+            return best
+
+    return GENERIC
 
 
 def find_matching_key(specs: dict[str, str], field: SpecField) -> str | None:

@@ -204,6 +204,21 @@ def test_unsupported_material_claim_is_detected() -> None:
     assert "госреестр" in find_unsupported_claims(text, source)
 
 
+def test_device_name_has_priority_over_description() -> None:
+    """В описании манометра всегда есть «давление» — оно не должно менять семейство."""
+    profile = detect_profile("Манометр МП3-У", "Манометр как датчик давления")
+
+    assert profile.id == "manometer"
+
+
+def test_pressure_transmitter_profile_is_detected() -> None:
+    assert detect_profile("Преобразователь давления").id == "pressure_transmitter"
+
+
+def test_ex_d_marker_is_detected() -> None:
+    assert "ex d" in find_unsupported_claims("Исполнение Ex d.", "Давление 1 МПа")
+
+
 def test_claims_present_in_source_are_allowed() -> None:
     source = "Корпус из нержавеющей стали. Поставляется с заводской поверкой."
 
