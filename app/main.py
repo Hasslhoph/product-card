@@ -9,7 +9,7 @@ import socket
 from typing import Any
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Cookie, FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -18,9 +18,17 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from app.config import DEFAULT_MODELS, PROVIDER_TITLES, load_settings
 from app.llm.base import LLMConfigError, LLMError, LLMResponseError
 from app.llm.factory import SUPPORTED_PROVIDERS, create_client
+from app.model_catalog import ModelListError, catalog_for, fetch_models, merge_with_catalog
 from app.models import CompletenessReport, ProductInput
 from app.pipeline import analyze_product, generate_card
 from app.render import to_json
+from app.sessions import (
+    SESSION_COOKIE,
+    SESSION_TTL_SECONDS,
+    ClientSession,
+    session_view,
+    store,
+)
 
 logger = logging.getLogger("product_card")
 
@@ -145,6 +153,22 @@ class AnalyzeRequest(BaseModel):
     product: dict[str, Any]
 
 
+class SessionRequest(BaseModel):
+    """Сохранение настроек и ключа в серверной сессии."""
+
+    provider: str | None = None
+    api_key: str | None = Field(default=None, repr=False)
+    model: str | None = None
+    base_url: str | None = None
+
+
+class ModelsRequest(BaseModel):
+    provider: str | None = None
+    api_key: str | None = Field(default=None, repr=False)
+    base_url: str | None = None
+    refresh: bool = False
+
+
 def _parse_product(raw: dict[str, Any]) -> ProductInput:
     try:
         return ProductInput.model_validate(raw)
@@ -161,38 +185,58 @@ def _parse_product(raw: dict[str, Any]) -> ProductInput:
         ) from None
 
 
-def _resolve_options(options: LLMOptions) -> dict[str, Any]:
+def _resolve_options(options: LLMOptions, session: ClientSession | None = None) -> dict[str, Any]:
     settings = load_settings()
-    provider = (options.provider or settings.provider).strip().lower()
+    provider = (
+        options.provider
+        or (session.provider if session else "")
+        or settings.provider
+    ).strip().lower()
     if provider not in SUPPORTED_PROVIDERS:
         raise HTTPException(
             status_code=400,
             detail=f"Неизвестный провайдер «{provider}». Доступны: {', '.join(SUPPORTED_PROVIDERS)}",
         )
 
+    # Адрес endpoint'а: запрос → сессия → .env. Пользовательский адрес проверяем.
     requested_base_url = (options.base_url or "").strip()
     if requested_base_url:
         _validate_base_url(requested_base_url)
+    base_url = requested_base_url
+    if not base_url and session and session.base_url and (not session.provider or session.provider == provider):
+        base_url = session.base_url
+    if not base_url and provider == settings.provider:
+        base_url = settings.base_url
 
     same_provider = provider == settings.provider
-    # Ключ из .env отправляем только на адрес из .env. Если клиент подставил
-    # свой base_url, ключ обязан прийти вместе с запросом — иначе серверный
-    # секрет утёк бы на чужой хост.
     uses_configured_endpoint = (
-        not requested_base_url
-        or requested_base_url.rstrip("/") == settings.base_url.rstrip("/")
+        not base_url or base_url.rstrip("/") == settings.base_url.rstrip("/")
     )
+
+    # Ключ: запрос → сессия (только для её endpoint'а) → .env (только для своего).
     api_key = (options.api_key or "").strip()
+    if not api_key and session and session.api_key:
+        session_matches = (
+            (not session.provider or session.provider == provider)
+            and (session.base_url or "").rstrip("/") == (base_url or "").rstrip("/")
+        )
+        if session_matches:
+            api_key = session.api_key
     if not api_key and same_provider and uses_configured_endpoint:
         api_key = settings.api_key
 
-    base_url = requested_base_url or (settings.base_url if same_provider else "")
+    model = (options.model or "").strip()
+    if not model and session and session.model and (not session.provider or session.provider == provider):
+        model = session.model
+    if not model and same_provider:
+        model = settings.model
+    if not model:
+        model = DEFAULT_MODELS.get(provider, "")
 
     return {
         "provider": provider,
         "api_key": api_key,
-        "model": (options.model or (settings.model if same_provider else "")).strip()
-        or DEFAULT_MODELS.get(provider, ""),
+        "model": model,
         "base_url": base_url,
         "temperature": options.temperature if options.temperature is not None else settings.temperature,
         "timeout": settings.timeout,
@@ -250,6 +294,122 @@ def examples() -> dict[str, Any]:
     return {"examples": items}
 
 
+def _session_cookie(response: Response, session_id: str) -> None:
+    response.set_cookie(
+        key=SESSION_COOKIE,
+        value=session_id,
+        max_age=SESSION_TTL_SECONDS,
+        httponly=True,
+        samesite="lax",
+    )
+
+
+@app.get("/api/session", tags=["служебное"], summary="Что сохранено в сессии")
+def read_session(
+    pcard_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+) -> dict[str, Any]:
+    return session_view(store.get(pcard_session))
+
+
+@app.post("/api/session", tags=["служебное"], summary="Сохранить ключ и настройки в сессии")
+def save_session(
+    payload: SessionRequest,
+    response: Response,
+    pcard_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+) -> dict[str, Any]:
+    session = store.get(pcard_session)
+    session_id = pcard_session if session is not None else store.new_id()
+    if payload.base_url:
+        _validate_base_url(payload.base_url)
+    saved = store.update(
+        session_id,
+        provider=(payload.provider or "").strip().lower() or None,
+        api_key=(payload.api_key or "").strip() or None,
+        model=payload.model.strip() if payload.model is not None else None,
+        base_url=payload.base_url.strip() if payload.base_url is not None else None,
+    )
+    _session_cookie(response, session_id)
+    return session_view(saved)
+
+
+@app.delete("/api/session", tags=["служебное"], summary="Забыть сохранённый ключ")
+def clear_session(
+    response: Response,
+    pcard_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+) -> dict[str, Any]:
+    store.clear(pcard_session)
+    response.delete_cookie(SESSION_COOKIE)
+    return session_view(None)
+
+
+@app.post("/api/models", tags=["служебное"], summary="Список моделей провайдера")
+async def models(
+    payload: ModelsRequest,
+    pcard_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+) -> dict[str, Any]:
+    settings = load_settings()
+    session = store.get(pcard_session)
+    provider = (
+        payload.provider or (session.provider if session else "") or settings.provider
+    ).strip().lower()
+    if provider not in SUPPORTED_PROVIDERS:
+        raise HTTPException(status_code=400, detail=f"Неизвестный провайдер «{provider}»")
+
+    base_url = (payload.base_url or "").strip()
+    if base_url:
+        _validate_base_url(base_url)
+    elif session and session.base_url and (not session.provider or session.provider == provider):
+        base_url = session.base_url
+
+    api_key = (payload.api_key or "").strip()
+    if not api_key and session and session.api_key:
+        if (not session.provider or session.provider == provider) and (
+            (session.base_url or "").rstrip("/") == base_url.rstrip("/")
+        ):
+            api_key = session.api_key
+    if not api_key and provider == settings.provider and (
+        not base_url or base_url.rstrip("/") == settings.base_url.rstrip("/")
+    ):
+        api_key = settings.api_key
+
+    catalog = catalog_for(provider)
+    if provider == "mock" or not api_key:
+        return {
+            "provider": provider,
+            "models": catalog,
+            "source": "catalog",
+            "note": "" if provider == "mock" else "Укажите ключ, чтобы загрузить полный список моделей",
+        }
+
+    try:
+        models_list = await fetch_models(
+            provider,
+            api_key=api_key,
+            base_url=base_url,
+            timeout=min(settings.timeout, 15.0),
+            force_refresh=payload.refresh,
+            extra_headers=(
+                settings.extra_headers
+                if not base_url or base_url.rstrip("/") == settings.base_url.rstrip("/")
+                else {}
+            ),
+        )
+    except ModelListError as exc:
+        return {
+            "provider": provider,
+            "models": catalog,
+            "source": "catalog",
+            "note": f"Не удалось получить список у провайдера: {exc}. Показан справочник.",
+        }
+
+    return {
+        "provider": provider,
+        "models": merge_with_catalog(provider, models_list),
+        "source": "provider",
+        "note": "",
+    }
+
+
 @app.post(
     "/api/analyze",
     response_model=CompletenessReport,
@@ -282,9 +442,12 @@ def analyze(payload: AnalyzeRequest) -> CompletenessReport:
         502: {"description": "Ошибка или недоступность провайдера LLM"},
     },
 )
-async def generate(payload: GenerateRequest) -> dict[str, Any]:
+async def generate(
+    payload: GenerateRequest,
+    pcard_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+) -> dict[str, Any]:
     product = _parse_product(payload.product)
-    options = _resolve_options(payload.llm)
+    options = _resolve_options(payload.llm, store.get(pcard_session))
 
     try:
         client = create_client(**options)
@@ -304,6 +467,7 @@ async def generate(payload: GenerateRequest) -> dict[str, Any]:
     return {
         "card": result.card.model_dump(),
         "markdown": result.markdown,
+        "text": result.text,
         "json": to_json(result.card),
         "meta": {
             "provider": options["provider"],

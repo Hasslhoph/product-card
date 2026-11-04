@@ -29,7 +29,7 @@ from app.models import (
     ProductInput,
     SpecItem,
 )
-from app.render import DESC_MAX, DESC_MIN, TITLE_LIMIT, to_markdown
+from app.render import DESC_MAX, DESC_MIN, TITLE_LIMIT, to_markdown, to_plain_text
 
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 SYSTEM_PROMPT = (PROMPTS_DIR / "system.md").read_text(encoding="utf-8")
@@ -56,6 +56,7 @@ _LIST_MARK_RE = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s*")
 class GenerationResult:
     card: ProductCard
     markdown: str
+    text: str
     provider: str
     model: str
     attempts: int
@@ -410,19 +411,20 @@ async def generate_card(
         card.warnings = repair_notes + card.warnings
 
     elapsed_ms = int((time.perf_counter() - started) * 1000)
-    markdown = to_markdown(
-        card,
-        product,
-        provider=provider_title or getattr(client, "name", ""),
-        model=getattr(client, "model", ""),
-        family_title=profile.title,
-        elapsed_ms=elapsed_ms,
-        attempts=attempts,
-    )
+    render_options = {
+        "provider": provider_title or getattr(client, "name", ""),
+        "model": getattr(client, "model", ""),
+        "family_title": profile.title,
+        "elapsed_ms": elapsed_ms,
+        "attempts": attempts,
+    }
+    markdown = to_markdown(card, product, **render_options)
+    text = to_plain_text(card, product, **render_options)
 
     return GenerationResult(
         card=card,
         markdown=markdown,
+        text=text,
         provider=provider_title or getattr(client, "name", ""),
         model=getattr(client, "model", ""),
         attempts=attempts,

@@ -102,5 +102,87 @@ def to_markdown(
     return "\n".join(lines).strip() + "\n"
 
 
+def _footer(provider: str, model: str, elapsed_ms: int, attempts: int) -> str:
+    parts = []
+    if provider:
+        parts.append(f"провайдер: {provider}")
+    if model:
+        parts.append(f"модель: {model}")
+    if attempts:
+        parts.append(f"обращений к модели: {attempts}")
+    if elapsed_ms:
+        parts.append(f"время: {elapsed_ms / 1000:.1f} с")
+    return " · ".join(parts)
+
+
+def to_plain_text(
+    card: ProductCard,
+    product: ProductInput,
+    *,
+    provider: str = "",
+    model: str = "",
+    family_title: str = "",
+    elapsed_ms: int = 0,
+    attempts: int = 0,
+) -> str:
+    """Тот же контент без разметки — для вставки в поля CMS."""
+    lines: list[str] = []
+    lines.append(f"Карточка товара: {_inline(product.name)}")
+    lines.append(f"Производитель: {_inline(product.manufacturer) or MISSING_VALUE}")
+    if family_title:
+        lines.append(f"Семейство: {_inline(family_title)}")
+    lines.append("")
+
+    lines.append(f"SEO-ЗАГОЛОВОК ({len(card.seo_title)}/{TITLE_LIMIT})")
+    lines.append(card.seo_title)
+    lines.append("")
+
+    lines.append(
+        f"SEO-ОПИСАНИЕ ({len(card.seo_description)} символов, {DESC_MIN}-{DESC_MAX})"
+    )
+    lines.append(card.seo_description)
+    lines.append("")
+
+    lines.append("КЛЮЧЕВЫЕ ХАРАКТЕРИСТИКИ")
+    if card.characteristics:
+        for item in card.characteristics:
+            lines.append(f"{_inline(item.name)}: {_inline(item.value)}")
+    else:
+        lines.append(f"Характеристики: {MISSING_VALUE}")
+    lines.append("")
+
+    lines.append("ПОИСКОВЫЕ ЗАПРОСЫ")
+    if card.search_queries:
+        for index, query in enumerate(card.search_queries, start=1):
+            lines.append(f"{index}. {query}")
+    else:
+        lines.append(MISSING_VALUE)
+    lines.append("")
+
+    lines.append("КОММЕРЧЕСКИЙ БЛОК ДЛЯ МЕНЕДЖЕРА")
+    lines.append(card.commercial_block or MISSING_VALUE)
+    lines.append("")
+
+    lines.append("ТРЕБУЕТ УТОЧНЕНИЯ")
+    if card.missing_data:
+        for field in card.missing_data:
+            lines.append(f"- {_inline(field)} — {MISSING_VALUE}")
+    else:
+        lines.append("- нет, данных достаточно для полной карточки")
+    lines.append("")
+
+    if card.warnings:
+        lines.append("ТЕХНИЧЕСКИЕ ЗАМЕЧАНИЯ ПРОВЕРОК")
+        for warning in card.warnings:
+            lines.append(f"- {_inline(warning)}")
+        lines.append("")
+
+    footer = _footer(provider, model, elapsed_ms, attempts)
+    if footer:
+        lines.append(footer)
+
+    return "\n".join(lines).strip() + "\n"
+
+
 def to_json(card: ProductCard) -> str:
     return json.dumps(card.model_dump(), ensure_ascii=False, indent=2)

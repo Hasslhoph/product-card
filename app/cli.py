@@ -48,8 +48,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--formats",
-        default="md,json",
-        help="что сохранять: md, json или md,json",
+        default="md,json,txt",
+        help="что сохранять: md, txt, json (можно перечислить через запятую)",
     )
     return parser
 
@@ -110,6 +110,8 @@ async def _run(args: argparse.Namespace) -> int:
 
         if "md" in formats:
             (out_dir / f"{path.stem}.md").write_text(result.markdown, encoding="utf-8")
+        if "txt" in formats:
+            (out_dir / f"{path.stem}.txt").write_text(result.text, encoding="utf-8")
         if "json" in formats:
             (out_dir / f"{path.stem}.json").write_text(to_json(result.card), encoding="utf-8")
 

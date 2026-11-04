@@ -1,14 +1,18 @@
-/* Интерфейс: разбор JSON, проверка полноты, генерация карточки. */
+/* Интерфейс: разбор JSON, проверка полноты, генерация и выгрузка карточки. */
 (() => {
   "use strict";
 
   const state = {
     providers: [],
     examples: [],
-    markdown: "",
-    json: "",
+    models: [],
+    session: { has_key: false, masked: "" },
+    data: { markdown: "", text: "", json: "" },
     tab: "markdown",
     canGenerate: true,
+    modelIndex: -1,
+    busy: false,
+    timer: null,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -20,20 +24,32 @@
     gaps: $("gaps"),
     provider: $("provider"),
     model: $("model"),
+    modelList: $("model-list"),
+    modelHint: $("model-hint"),
+    refreshModels: $("refresh-models"),
     baseUrl: $("base-url"),
     baseUrlField: $("base-url-field"),
     apiKey: $("api-key"),
     apiKeyField: $("api-key-field"),
+    keyStatus: $("key-status"),
+    keyActions: $("key-actions"),
+    forgetKey: $("forget-key"),
     toggleKey: $("toggle-key"),
     generateBtn: $("generate-btn"),
+    generateLabel: $("generate-label"),
+    spinner: $("generate-spinner"),
+    progress: $("progress"),
+    progressText: $("progress-text"),
     status: $("status"),
     empty: $("empty"),
     resultMd: $("result-md"),
+    resultText: $("result-text"),
     resultJson: $("result-json"),
     resultMeta: $("result-meta"),
     resultWarnings: $("result-warnings"),
     copyBtn: $("copy-btn"),
     downloadBtn: $("download-btn"),
+    downloadMenu: $("download-menu"),
     tabs: Array.from(document.querySelectorAll(".tab")),
   };
 
@@ -116,8 +132,7 @@
     if (!provider) return;
     els.baseUrlField.hidden = !provider.needs_base_url;
     els.apiKeyField.hidden = !provider.needs_key;
-    els.model.placeholder = provider.default_model || "";
-    if (!els.model.value) els.model.value = provider.default_model || "";
+    els.model.placeholder = provider.default_model || "название модели";
   }
 
   async function loadProviders() {
@@ -132,7 +147,6 @@
     });
     const preferred = state.providers.find((item) => item.id === "openai_compatible");
     els.provider.value = (preferred || state.providers[0] || {}).id || "";
-    els.model.value = "";
     syncProviderFields();
   }
 
@@ -150,6 +164,154 @@
     });
     if (state.examples.length) {
       els.productJson.value = JSON.stringify(state.examples[0].payload, null, 2);
+    }
+  }
+
+  // ------------------------------------------------------------- сессия и ключ
+
+  function renderSession(session) {
+    state.session = session || { has_key: false, masked: "" };
+    if (state.session.has_key) {
+      els.keyStatus.textContent = `Ключ сохранён в сессии (${state.session.masked}). Он живёт в памяти сервера до перезапуска.`;
+      els.keyActions.hidden = false;
+      els.apiKey.placeholder = "Ключ уже сохранён — введите новый, чтобы заменить";
+    } else {
+      els.keyStatus.textContent =
+        "Ключ хранится в памяти сервера до его перезапуска. В браузере и на диске не сохраняется.";
+      els.keyActions.hidden = true;
+      els.apiKey.placeholder = "Можно оставить пустым, если ключ задан в .env";
+    }
+  }
+
+  async function loadSession() {
+    try {
+      const session = await api("/api/session");
+      renderSession(session);
+      if (session.provider) {
+        els.provider.value = session.provider;
+        syncProviderFields();
+      }
+      if (session.base_url) els.baseUrl.value = session.base_url;
+      if (session.model) els.model.value = session.model;
+    } catch (error) {
+      /* сессия не критична для работы интерфейса */
+    }
+  }
+
+  async function saveSession() {
+    const apiKey = els.apiKey.value.trim();
+    if (!apiKey) return;
+    try {
+      const session = await api("/api/session", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: els.provider.value,
+          api_key: apiKey,
+          model: els.model.value.trim(),
+          base_url: els.baseUrl.value.trim(),
+        }),
+      });
+      els.apiKey.value = "";
+      renderSession(session);
+    } catch (error) {
+      setStatus(`Не удалось сохранить ключ в сессии: ${error.message}`, "error");
+    }
+  }
+
+  async function forgetKey() {
+    try {
+      renderSession(await api("/api/session", { method: "DELETE" }));
+      setStatus("Ключ удалён из сессии", "ok");
+    } catch (error) {
+      setStatus(error.message, "error");
+    }
+  }
+
+  // ------------------------------------------------------------ модели комбобокс
+
+  function filterModels(list, query) {
+    const needle = query.toLowerCase().replace(/[-_\s.]/g, "");
+    if (!needle) return list;
+    return list.filter((name) => name.toLowerCase().replace(/[-_\s.]/g, "").includes(needle));
+  }
+
+  function closeModelList() {
+    els.modelList.hidden = true;
+    els.model.setAttribute("aria-expanded", "false");
+    state.modelIndex = -1;
+  }
+
+  function chooseModel(name) {
+    els.model.value = name;
+    closeModelList();
+  }
+
+  function renderModelList() {
+    const items = filterModels(state.models, els.model.value.trim());
+    els.modelList.innerHTML = "";
+
+    if (!items.length) {
+      const empty = document.createElement("li");
+      empty.className = "combobox__empty";
+      empty.textContent = "Ничего не найдено — название можно ввести вручную";
+      els.modelList.appendChild(empty);
+    } else {
+      items.slice(0, 80).forEach((name, index) => {
+        const item = document.createElement("li");
+        item.className =
+          "combobox__item" + (index === state.modelIndex ? " combobox__item--active" : "");
+        item.setAttribute("role", "option");
+        item.dataset.value = name;
+
+        const label = document.createElement("span");
+        label.textContent = name;
+        item.appendChild(label);
+
+        if (name === els.model.value.trim()) {
+          const tag = document.createElement("span");
+          tag.className = "combobox__tag";
+          tag.textContent = "выбрано";
+          item.appendChild(tag);
+        }
+
+        item.addEventListener("mousedown", (event) => {
+          event.preventDefault();
+          chooseModel(name);
+        });
+        els.modelList.appendChild(item);
+      });
+    }
+
+    els.modelList.hidden = false;
+    els.model.setAttribute("aria-expanded", "true");
+  }
+
+  function setModels(models, hint) {
+    state.models = models || [];
+    if (hint) els.modelHint.textContent = hint;
+    if (!els.modelList.hidden) renderModelList();
+  }
+
+  async function reloadModels(force = false) {
+    const provider = currentProvider();
+    if (!provider) return;
+    els.modelHint.textContent = "Загружаем список моделей…";
+    try {
+      const data = await api("/api/models", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: els.provider.value,
+          api_key: els.apiKey.value.trim(),
+          base_url: els.baseUrl.value.trim(),
+          refresh: force,
+        }),
+      });
+      setModels(data.models, data.note || "Начните вводить — список отфильтруется. Можно указать своё название.");
+      if (data.source === "provider") {
+        els.modelHint.textContent = "Список загружен у провайдера. Можно ввести и своё название.";
+      }
+    } catch (error) {
+      els.modelHint.textContent = `Не удалось загрузить список: ${error.message}`;
     }
   }
 
@@ -186,7 +348,7 @@
       }
 
       state.canGenerate = report.can_generate !== false;
-      els.generateBtn.disabled = !state.canGenerate;
+      els.generateBtn.disabled = !state.canGenerate || state.busy;
       setStatus(
         state.canGenerate
           ? "Проверка выполнена"
@@ -202,16 +364,44 @@
 
   // ---------------------------------------------------------------- генерация
 
+  function setBusy(busy) {
+    state.busy = busy;
+    els.generateBtn.disabled = busy || !state.canGenerate;
+    els.spinner.hidden = !busy;
+    els.generateLabel.textContent = busy ? "Формируем карточку…" : "Сформировать карточку";
+    els.progress.hidden = !busy;
+
+    if (busy) {
+      const started = Date.now();
+      els.progressText.textContent = "Отправляем данные в модель…";
+      state.timer = window.setInterval(() => {
+        const seconds = Math.floor((Date.now() - started) / 1000);
+        const phase =
+          seconds >= 15
+            ? "Модель пишет текст, это может занять до минуты"
+            : "Отправляем данные в модель…";
+        els.progressText.textContent = `${phase} · ${seconds} с`;
+      }, 1000);
+    } else if (state.timer) {
+      window.clearInterval(state.timer);
+      state.timer = null;
+    }
+  }
+
   function showResult(data) {
-    state.markdown = data.markdown || "";
-    state.json = data.json || JSON.stringify(data.card, null, 2);
+    state.data = {
+      markdown: data.markdown || "",
+      text: data.text || "",
+      json: data.json || JSON.stringify(data.card, null, 2),
+    };
     els.empty.hidden = true;
-    els.resultMd.hidden = false;
-    els.resultJson.hidden = true;
-    els.resultMd.textContent = state.markdown;
-    els.resultJson.textContent = state.json;
     els.copyBtn.disabled = false;
     els.downloadBtn.disabled = false;
+
+    els.resultMd.textContent = state.data.markdown;
+    els.resultText.textContent = state.data.text;
+    els.resultJson.textContent = state.data.json;
+    selectTab(state.tab);
 
     const meta = data.meta || {};
     const parts = [];
@@ -239,25 +429,20 @@
       setStatus(error.message, "error");
       return;
     }
+    if (state.busy) return;
 
-    const provider = currentProvider();
     const payload = {
       product,
       llm: {
         provider: els.provider.value,
         model: els.model.value.trim(),
         base_url: els.baseUrl.value.trim(),
-        api_key: els.apiKey.value,
+        api_key: els.apiKey.value.trim(),
       },
     };
 
-    els.generateBtn.disabled = true;
-    setStatus(
-      provider && provider.id === "mock"
-        ? "Собираем карточку в офлайн-режиме…"
-        : "Отправляем данные в модель — это может занять несколько секунд…"
-    );
-
+    setBusy(true);
+    setStatus("");
     try {
       const data = await api("/api/generate", {
         method: "POST",
@@ -265,10 +450,11 @@
       });
       showResult(data);
       setStatus("Готово", "ok");
+      await saveSession();
     } catch (error) {
       setStatus(error.message, "error");
     } finally {
-      els.generateBtn.disabled = !state.canGenerate;
+      setBusy(false);
     }
   }
 
@@ -282,11 +468,12 @@
       tab.setAttribute("aria-selected", String(active));
     });
     els.resultMd.hidden = name !== "markdown";
+    els.resultText.hidden = name !== "text";
     els.resultJson.hidden = name !== "json";
   }
 
   async function copyResult() {
-    const text = state.tab === "json" ? state.json : state.markdown;
+    const text = state.data[state.tab] || "";
     if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
@@ -296,22 +483,43 @@
     }
   }
 
-  function downloadResult() {
-    if (!state.markdown) return;
-    let name = "product-card.md";
+  const DOWNLOAD_FORMATS = {
+    md: { field: "markdown", ext: "md", type: "text/markdown;charset=utf-8" },
+    txt: { field: "text", ext: "txt", type: "text/plain;charset=utf-8" },
+    json: { field: "json", ext: "json", type: "application/json;charset=utf-8" },
+  };
+
+  function fileBaseName() {
     try {
       const product = readProduct();
-      name = `${String(product.name || "card").replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "")}.md`;
+      const name = String(product.name || "card")
+        .replace(/[^\p{L}\p{N}]+/gu, "-")
+        .replace(/^-|-$/g, "");
+      return name || "card";
     } catch (error) {
-      /* имя не критично — оставим значение по умолчанию */
+      return "card";
     }
-    const blob = new Blob([state.markdown], { type: "text/markdown;charset=utf-8" });
+  }
+
+  function download(format) {
+    const config = DOWNLOAD_FORMATS[format];
+    const content = state.data[config.field];
+    if (!config || !content) return;
+
+    const blob = new Blob([content], { type: config.type });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = name;
+    link.download = `${fileBaseName()}.${config.ext}`;
     link.click();
     URL.revokeObjectURL(url);
+    setStatus(`Скачано: .${config.ext}`, "ok");
+  }
+
+  function toggleDownloadMenu(show) {
+    const willShow = show === undefined ? els.downloadMenu.hidden : show;
+    els.downloadMenu.hidden = !willShow;
+    els.downloadBtn.setAttribute("aria-expanded", String(willShow));
   }
 
   // ------------------------------------------------------------------ события
@@ -326,9 +534,45 @@
   });
 
   els.provider.addEventListener("change", () => {
-    els.model.value = "";
     syncProviderFields();
+    const provider = currentProvider();
+    els.model.value = provider ? provider.default_model || "" : "";
+    reloadModels();
   });
+
+  els.model.addEventListener("input", () => {
+    state.modelIndex = -1;
+    renderModelList();
+  });
+  els.model.addEventListener("focus", () => {
+    if (state.models.length) renderModelList();
+  });
+  els.model.addEventListener("blur", () => {
+    window.setTimeout(closeModelList, 120);
+  });
+  els.model.addEventListener("keydown", (event) => {
+    const items = filterModels(state.models, els.model.value.trim()).slice(0, 80);
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (!items.length) return;
+      event.preventDefault();
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+      state.modelIndex = (state.modelIndex + delta + items.length) % items.length;
+      renderModelList();
+      const active = els.modelList.querySelector(".combobox__item--active");
+      if (active) active.scrollIntoView({ block: "nearest" });
+    } else if (event.key === "Enter") {
+      if (state.modelIndex >= 0 && items[state.modelIndex]) {
+        event.preventDefault();
+        chooseModel(items[state.modelIndex]);
+      } else {
+        closeModelList();
+      }
+    } else if (event.key === "Escape") {
+      closeModelList();
+    }
+  });
+
+  els.refreshModels.addEventListener("click", () => reloadModels(true));
 
   els.toggleKey.addEventListener("click", () => {
     const visible = els.apiKey.type === "text";
@@ -337,13 +581,25 @@
     els.toggleKey.setAttribute("aria-label", visible ? "Показать ключ" : "Скрыть ключ");
   });
 
+  els.forgetKey.addEventListener("click", forgetKey);
   els.analyzeBtn.addEventListener("click", analyze);
   els.generateBtn.addEventListener("click", generate);
   els.copyBtn.addEventListener("click", copyResult);
-  els.downloadBtn.addEventListener("click", downloadResult);
   els.tabs.forEach((tab) => tab.addEventListener("click", () => selectTab(tab.dataset.tab)));
 
+  els.downloadBtn.addEventListener("click", () => toggleDownloadMenu());
+  els.downloadMenu.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-format]");
+    if (!button) return;
+    download(button.dataset.format);
+    toggleDownloadMenu(false);
+  });
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".menu-wrap")) toggleDownloadMenu(false);
+  });
+
   Promise.all([loadProviders(), loadExamples()])
-    .then(() => setStatus(""))
+    .then(() => loadSession())
+    .then(() => reloadModels())
     .catch((error) => setStatus(`Не удалось загрузить данные интерфейса: ${error.message}`, "error"));
 })();

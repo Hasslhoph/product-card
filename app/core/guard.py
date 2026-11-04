@@ -85,9 +85,11 @@ def sanitize_unsupported(text: str, source: str) -> tuple[str, list[str], list[s
     removed_claims: list[str] = []
     paragraphs: list[str] = []
 
-    for paragraph in text.split("\n"):
+    # Абзацы разделены пустой строкой — её нельзя терять, иначе описание
+    # превращается в один сплошной блок и не проходит требование «3–4 абзаца».
+    for block in re.split(r"\n\s*\n", text):
         kept: list[str] = []
-        for sentence in _split_sentences(paragraph):
+        for sentence in _split_sentences(block.replace("\n", " ")):
             bad_numbers = find_unsupported_numbers(sentence, source)
             bad_claims = find_unsupported_claims(sentence, source)
             if bad_numbers or bad_claims:
@@ -98,5 +100,5 @@ def sanitize_unsupported(text: str, source: str) -> tuple[str, list[str], list[s
         if kept:
             paragraphs.append(" ".join(kept))
 
-    cleaned = "\n".join(paragraphs)
+    cleaned = "\n\n".join(paragraphs)
     return cleaned.strip(), removed_numbers, removed_claims

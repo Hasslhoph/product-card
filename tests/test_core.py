@@ -193,7 +193,8 @@ def test_paragraphs_are_preserved() -> None:
 
     cleaned, _, _ = sanitize_unsupported(text, source)
 
-    assert cleaned.count("\n") == 2
+    assert cleaned.count("\n\n") == 2
+    assert "Первый абзац." in cleaned.split("\n\n")[0]
 
 
 # --------------------------------------------------------------------------
