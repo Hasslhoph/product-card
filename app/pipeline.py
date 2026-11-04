@@ -185,7 +185,7 @@ def collect_problems(
     name: str = "",
     claim_source: str | None = None,
 ) -> list[str]:
-    """Нарушения требований задания, которые видны без семантики."""
+    """Формальные нарушения контракта карточки, которые видны без семантики."""
     problems: list[str] = []
 
     if not card.seo_title:
