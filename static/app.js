@@ -277,8 +277,10 @@
       option.textContent = provider.title;
       els.provider.appendChild(option);
     });
-    const preferred = state.providers.find((item) => item.id === "openai_compatible");
-    els.provider.value = (preferred || state.providers[0] || {}).id || "";
+    const preferred =
+      state.providers.find((item) => item.id === data.default_provider) || state.providers[0];
+    els.provider.value = (preferred || {}).id || "";
+    if (data.default_model) els.model.value = data.default_model;
     syncProviderFields();
   }
 

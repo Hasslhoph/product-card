@@ -289,7 +289,10 @@ def health() -> dict[str, str]:
 
 @app.get("/api/providers", tags=["служебное"], summary="Доступные провайдеры LLM")
 def providers() -> dict[str, Any]:
+    settings = load_settings()
     return {
+        "default_provider": settings.provider if settings.provider in SUPPORTED_PROVIDERS else "mock",
+        "default_model": settings.model,
         "providers": [
             {
                 "id": provider,

@@ -75,7 +75,9 @@ def _headers_env(name: str) -> dict[str, str]:
 
 
 def load_settings() -> Settings:
-    provider = os.getenv("LLM_PROVIDER", "openai_compatible").strip() or "openai_compatible"
+    # Без конфигурации сервис должен запускаться и показывать результат:
+    # офлайн-режим не требует ни ключа, ни endpoint'а.
+    provider = os.getenv("LLM_PROVIDER", "mock").strip() or "mock"
     return Settings(
         provider=provider,
         api_key=os.getenv("LLM_API_KEY", "").strip(),

@@ -27,6 +27,13 @@ def test_providers_endpoint_lists_supported_providers() -> None:
     assert "openai_compatible" in ids
 
 
+def test_providers_endpoint_exposes_default_provider() -> None:
+    response = client.get("/api/providers")
+
+    data = response.json()
+    assert data["default_provider"] in [item["id"] for item in data["providers"]]
+
+
 def test_examples_endpoint_returns_bundled_products() -> None:
     response = client.get("/api/examples")
 
