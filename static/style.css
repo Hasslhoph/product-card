@@ -494,3 +494,33 @@ html, body {
   border-color: #0f766e !important;
   background: #ecfdf5 !important;
 }
+
+/* ---------- единый блок обратной связи ---------- */
+
+.notice {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  background: #f6f8fb;
+  color: var(--text);
+}
+
+.notice--ok { background: #f0fdf9; border-color: #b7ebdd; color: #0f766e; }
+.notice--warn { background: var(--warn-bg); border-color: var(--warn-border); color: var(--warn); }
+.notice--error { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+
+.notice__title { font-weight: 650; }
+
+.notice ul { margin: 6px 0 0; padding-left: 18px; }
+.notice li { margin: 2px 0; }
+
+/* заголовок панели не должен ломаться на две строки из-за селекта */
+.panel__head h2 { white-space: nowrap; }
+
+.panel__head .select--small {
+  min-width: 0;
+  max-width: 260px;
+  flex: 0 1 auto;
+}

@@ -22,7 +22,7 @@
     exampleSelect: $("example-select"),
     productJson: $("product-json"),
     analyzeBtn: $("analyze-btn"),
-    gaps: $("gaps"),
+    notice: $("notice"),
     provider: $("provider"),
     model: $("model"),
     modelList: $("model-list"),
@@ -41,7 +41,7 @@
     spinner: $("generate-spinner"),
     progress: $("progress"),
     progressText: $("progress-text"),
-    status: $("status"),
+
     empty: $("empty"),
     resultMd: $("result-md"),
     resultText: $("result-text"),
@@ -78,9 +78,43 @@
     }, 2200);
   }
 
-  function setStatus(text, kind = "") {
-    els.status.textContent = text || "";
-    els.status.className = "status" + (kind ? ` status--${kind}` : "");
+  function clearNotice() {
+    if (!els.notice) return;
+    els.notice.hidden = true;
+    els.notice.innerHTML = "";
+  }
+
+  function showNotice({ kind = "info", title = "", items = [] } = {}) {
+    const notice = els.notice;
+    if (!notice) return;
+    notice.innerHTML = "";
+    notice.className = `notice notice--${kind}`;
+    notice.hidden = false;
+
+    if (title) {
+      const heading = document.createElement("div");
+      heading.className = "notice__title";
+      heading.textContent = title;
+      notice.appendChild(heading);
+    }
+    if (items.length) {
+      const list = document.createElement("ul");
+      items.forEach((text) => {
+        const item = document.createElement("li");
+        item.textContent = text;
+        list.appendChild(item);
+      });
+      notice.appendChild(list);
+    }
+  }
+
+  /** Короткое уведомление в том же блоке: ошибки, успех, инфо. */
+  function notify(text, kind = "info") {
+    if (!text) {
+      clearNotice();
+      return;
+    }
+    showNotice({ kind, title: text });
   }
 
   function describeError(detail) {
@@ -213,6 +247,11 @@
     }
   }
 
+  /** Ошибка ввода или запроса — всегда в едином блоке под кнопкой. */
+  function reportError(error) {
+    notify(typeof error === "string" ? error : error.message, "error");
+  }
+
   // --------------------------------------------------------------- провайдеры
 
   function currentProvider() {
@@ -307,16 +346,16 @@
       els.apiKey.value = "";
       renderSession(session);
     } catch (error) {
-      setStatus(`Не удалось сохранить ключ в сессии: ${error.message}`, "error");
+      reportError(`Не удалось сохранить ключ в сессии: ${error.message}`);
     }
   }
 
   async function forgetKey() {
     try {
       renderSession(await api("/api/session", { method: "DELETE" }));
-      setStatus("Ключ удалён из сессии", "ok");
+      notify("Ключ удалён из сессии", "ok");
     } catch (error) {
-      setStatus(error.message, "error");
+      reportError(error);
     }
   }
 
@@ -404,7 +443,8 @@
           refresh: force,
         }),
       });
-      setModels(data.models, data.note || "Начните вводить — список отфильтруется. Можно указать своё название.");
+      const defaultHint = "Начните вводить — список отфильтруется. Можно указать своё название.";
+      setModels(data.models, (force && data.note) || defaultHint);
       if (!els.model.value.trim()) {
         els.model.value = provider.default_model || (data.models && data.models[0]) || "";
       }
@@ -412,7 +452,8 @@
         els.modelHint.textContent = "Список загружен у провайдера. Можно ввести и своё название.";
         if (force) showToast(`Список моделей обновлён: ${data.models.length}`);
       } else if (force) {
-        showToast(data.note || "Показан справочник моделей");
+        els.modelHint.textContent = data.note || "Показан справочник моделей";
+        showToast("Показан справочник моделей");
       }
     } catch (error) {
       els.modelHint.textContent = `Не удалось загрузить список: ${error.message}`;
@@ -427,9 +468,7 @@
 
   /** Сбрасывает вердикт прошлой проверки: он относится к старым данным. */
   function resetAnalysis() {
-    els.gaps.hidden = true;
-    els.gaps.innerHTML = "";
-    setStatus("");
+    clearNotice();
     state.canGenerate = true;
     els.generateBtn.disabled = state.busy;
   }
@@ -439,8 +478,7 @@
     try {
       product = readProduct();
     } catch (error) {
-      els.gaps.hidden = true;
-      setStatus(error.message, "error");
+      reportError(error);
       return;
     }
 
@@ -460,21 +498,28 @@
       }
 
       if (lines.length) {
-        renderList(els.gaps, `Семейство: ${report.family_title}. Требует уточнения:`, lines, "warn");
+        showNotice({
+          kind: "warn",
+          title: `Семейство: ${report.family_title}. Требует уточнения:`,
+          items: lines,
+        });
       } else {
-        renderList(els.gaps, "Данные полные — можно генерировать карточку", [], "ok");
+        showNotice({
+          kind: "ok",
+          title: "Данные полные — можно генерировать карточку",
+        });
       }
 
       state.canGenerate = report.can_generate !== false;
       els.generateBtn.disabled = !state.canGenerate || state.busy;
-      setStatus(
-        state.canGenerate
-          ? "Проверка выполнена"
-          : "Данных слишком мало: добавьте характеристики или описание",
-        state.canGenerate ? "" : "error"
-      );
+      if (!state.canGenerate) {
+        showNotice({
+          kind: "error",
+          title: "Данных слишком мало: добавьте характеристики или описание",
+        });
+      }
     } catch (error) {
-      setStatus(error.message, "error");
+      reportError(error);
     } finally {
       els.analyzeBtn.disabled = false;
     }
@@ -545,7 +590,7 @@
     try {
       product = readProduct();
     } catch (error) {
-      setStatus(error.message, "error");
+      reportError(error);
       return;
     }
     if (state.busy) return;
@@ -561,17 +606,17 @@
     };
 
     setBusy(true);
-    setStatus("");
+    clearNotice();
     try {
       const data = await api("/api/generate", {
         method: "POST",
         body: JSON.stringify(payload),
       });
       showResult(data);
-      setStatus("Готово", "ok");
+      notify("Готово: карточка сформирована", "ok");
       await saveSession();
     } catch (error) {
-      setStatus(error.message, "error");
+      reportError(error);
     } finally {
       setBusy(false);
     }
@@ -608,14 +653,12 @@
       els.copyBtn.textContent = "Скопировано ✓";
       els.copyBtn.classList.add("btn--copied");
       showToast("Текст скопирован в буфер обмена");
-      setStatus("Скопировано в буфер обмена", "ok");
       window.setTimeout(() => {
         els.copyBtn.textContent = label;
         els.copyBtn.classList.remove("btn--copied");
       }, 1800);
     } catch (error) {
       showToast("Браузер запретил копирование — выделите текст вручную");
-      setStatus("Браузер запретил доступ к буферу обмена — выделите текст вручную", "error");
     }
   }
 
@@ -649,7 +692,7 @@
     link.download = `${fileBaseName()}.${config.ext}`;
     link.click();
     URL.revokeObjectURL(url);
-    setStatus(`Скачано: .${config.ext}`, "ok");
+    showToast(`Скачано: .${config.ext}`);
   }
 
   function toggleDownloadMenu(show) {
@@ -740,5 +783,5 @@
   Promise.all([loadProviders(), loadExamples()])
     .then(() => loadSession())
     .then(() => reloadModels())
-    .catch((error) => setStatus(`Не удалось загрузить данные интерфейса: ${error.message}`, "error"));
+    .catch((error) => reportError(`Не удалось загрузить данные интерфейса: ${error.message}`));
 })();

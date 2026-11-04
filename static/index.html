@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Карточка товара — помощник для контент-менеджера</title>
-  <link rel="stylesheet" href="/static/style.css?v=11" />
+  <link rel="stylesheet" href="/static/style.css?v=13" />
 </head>
 <body>
   <header class="topbar">
@@ -39,8 +39,6 @@
         <button id="analyze-btn" class="btn btn--ghost" type="button">Проверить данные</button>
         <span class="hint">Проверка полноты выполняется без обращения к модели</span>
       </div>
-
-      <div id="gaps" class="gaps" hidden></div>
 
       <details class="settings" open>
         <summary>Модель и ключ</summary>
@@ -114,7 +112,7 @@
         <p id="progress-text" class="progress__text"></p>
       </div>
 
-      <p id="status" class="status" role="status" aria-live="polite"></p>
+      <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
     </section>
 
     <!-- ПРАВАЯ КОЛОНКА: результат -->
@@ -163,6 +161,6 @@
     <span>Прототип: FastAPI + Pydantic + LLM API. Технические значения берутся только из входных данных.</span>
   </footer>
 
-  <script src="/static/app.js?v=11"></script>
+  <script src="/static/app.js?v=13"></script>
 </body>
 </html>

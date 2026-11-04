@@ -45,10 +45,11 @@ def build_mock_card(product: dict) -> dict:
         "если характеристика не указана во входных данных, в карточке стоит пометка."
     )
 
-    filler_index = 0
-    while len(" ".join(parts)) < MIN_DESCRIPTION:
-        parts.append(FILLER[filler_index % len(FILLER)])
-        filler_index += 1
+    # Заполнители не повторяем: повторяющийся текст выглядит как ошибка.
+    for sentence in FILLER:
+        if len(" ".join(parts)) >= MIN_DESCRIPTION:
+            break
+        parts.append(sentence)
 
     queries = [
         f"{name} купить",
