@@ -373,11 +373,21 @@
 
   // -------------------------------------------------------- проверка полноты
 
+  /** Сбрасывает вердикт прошлой проверки: он относится к старым данным. */
+  function resetAnalysis() {
+    els.gaps.hidden = true;
+    els.gaps.innerHTML = "";
+    setStatus("");
+    state.canGenerate = true;
+    els.generateBtn.disabled = state.busy;
+  }
+
   async function analyze() {
     let product;
     try {
       product = readProduct();
     } catch (error) {
+      els.gaps.hidden = true;
       setStatus(error.message, "error");
       return;
     }
@@ -598,12 +608,13 @@
 
   // ------------------------------------------------------------------ события
 
+  els.productJson.addEventListener("input", resetAnalysis);
+
   els.exampleSelect.addEventListener("change", () => {
     const example = state.examples.find((item) => item.id === els.exampleSelect.value);
     if (example) {
       els.productJson.value = JSON.stringify(example.payload, null, 2);
-      els.gaps.hidden = true;
-      setStatus("");
+      resetAnalysis();
     }
   });
 
