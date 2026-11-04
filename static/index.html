@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Карточка товара — помощник для контент-менеджера</title>
-  <link rel="stylesheet" href="/static/style.css?v=6" />
+  <link rel="stylesheet" href="/static/style.css?v=8" />
 </head>
 <body>
   <header class="topbar">
@@ -55,8 +55,14 @@
             <span class="combobox">
               <input id="model" class="input" type="text" autocomplete="off" spellcheck="false"
                      role="combobox" aria-expanded="false" aria-controls="model-list" aria-autocomplete="list" />
-              <button id="refresh-models" class="btn btn--ghost btn--small" type="button"
-                      title="Загрузить список моделей у провайдера">⟳</button>
+              <button id="refresh-models" class="icon-btn" type="button"
+                      aria-label="Обновить список моделей у провайдера"
+                      title="Обновить список моделей у провайдера">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M20 11a8 8 0 1 0-2.34 5.66"/>
+                  <path d="M20 4v7h-7"/>
+                </svg>
+              </button>
               <ul id="model-list" class="combobox__list" role="listbox" hidden></ul>
             </span>
             <span id="model-hint" class="field__hint">
@@ -76,7 +82,16 @@
               <input id="api-key" class="input" type="password" autocomplete="off" spellcheck="false"
                      placeholder="Можно оставить пустым, если ключ задан в .env" />
               <button id="toggle-key" class="icon-btn" type="button" aria-label="Показать ключ" aria-pressed="false">
-                <span aria-hidden="true">👁</span>
+                <svg class="icon icon-eye" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/>
+                  <circle cx="12" cy="12" r="3"/>
+                </svg>
+                <svg class="icon icon-eye-off" viewBox="0 0 24 24" aria-hidden="true" hidden>
+                  <path d="M3 3l18 18"/>
+                  <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8"/>
+                  <path d="M9.9 5.2A10.9 10.9 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-3.4 4.3"/>
+                  <path d="M6.3 6.3A17.4 17.4 0 0 0 2 12s3.6 7 10 7a10.9 10.9 0 0 0 4.1-.8"/>
+                </svg>
               </button>
             </span>
             <span id="key-status" class="field__hint">
@@ -142,10 +157,12 @@
     </section>
   </main>
 
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
   <footer class="footer">
     <span>Прототип: FastAPI + Pydantic + LLM API. Технические значения берутся только из входных данных.</span>
   </footer>
 
-  <script src="/static/app.js?v=6"></script>
+  <script src="/static/app.js?v=8"></script>
 </body>
 </html>

@@ -10,6 +10,7 @@
     data: { markdown: "", text: "", json: "" },
     tab: "markdown",
     canGenerate: true,
+    hasResult: false,
     modelIndex: -1,
     busy: false,
     timer: null,
@@ -50,10 +51,32 @@
     copyBtn: $("copy-btn"),
     downloadBtn: $("download-btn"),
     downloadMenu: $("download-menu"),
+    toast: $("toast"),
+    eyeOn: document.querySelector(".icon-eye"),
+    eyeOff: document.querySelector(".icon-eye-off"),
     tabs: Array.from(document.querySelectorAll(".tab")),
   };
 
   // ------------------------------------------------------------------ утилиты
+
+  let toastTimer = null;
+
+  /** У SVG нет HTML-свойства hidden — управляем атрибутом. */
+  function setHidden(element, hidden) {
+    if (!element) return;
+    if (hidden) element.setAttribute("hidden", "");
+    else element.removeAttribute("hidden");
+  }
+
+  function showToast(text) {
+    if (!els.toast) return;
+    els.toast.textContent = text;
+    els.toast.hidden = false;
+    if (toastTimer) window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => {
+      els.toast.hidden = true;
+    }, 2200);
+  }
 
   function setStatus(text, kind = "") {
     els.status.textContent = text || "";
@@ -149,6 +172,7 @@
     if (!provider) return;
     els.baseUrlField.hidden = !provider.needs_base_url;
     els.apiKeyField.hidden = !provider.needs_key;
+    els.refreshModels.hidden = provider.id === "mock";
     els.model.placeholder = provider.default_model || "название модели";
   }
 
@@ -313,6 +337,10 @@
     const provider = currentProvider();
     if (!provider) return;
     els.modelHint.textContent = "Загружаем список моделей…";
+    if (force) {
+      els.refreshModels.classList.add("is-loading");
+      els.refreshModels.disabled = true;
+    }
     try {
       const data = await api("/api/models", {
         timeout: 45000,
@@ -330,9 +358,16 @@
       }
       if (data.source === "provider") {
         els.modelHint.textContent = "Список загружен у провайдера. Можно ввести и своё название.";
+        if (force) showToast(`Список моделей обновлён: ${data.models.length}`);
+      } else if (force) {
+        showToast(data.note || "Показан справочник моделей");
       }
     } catch (error) {
       els.modelHint.textContent = `Не удалось загрузить список: ${error.message}`;
+      if (force) showToast("Не удалось обновить список моделей");
+    } finally {
+      els.refreshModels.classList.remove("is-loading");
+      els.refreshModels.disabled = false;
     }
   }
 
@@ -415,6 +450,7 @@
       text: data.text || "",
       json: data.json || JSON.stringify(data.card, null, 2),
     };
+    state.hasResult = true;
     els.empty.hidden = true;
     els.copyBtn.disabled = false;
     els.downloadBtn.disabled = false;
@@ -488,6 +524,14 @@
       tab.classList.toggle("tab--active", active);
       tab.setAttribute("aria-selected", String(active));
     });
+    if (!state.hasResult) {
+      els.empty.hidden = false;
+      els.resultMd.hidden = true;
+      els.resultText.hidden = true;
+      els.resultJson.hidden = true;
+      return;
+    }
+    els.empty.hidden = true;
     els.resultMd.hidden = name !== "markdown";
     els.resultText.hidden = name !== "text";
     els.resultJson.hidden = name !== "json";
@@ -496,10 +540,19 @@
   async function copyResult() {
     const text = state.data[state.tab] || "";
     if (!text) return;
+    const label = els.copyBtn.textContent;
     try {
       await navigator.clipboard.writeText(text);
+      els.copyBtn.textContent = "Скопировано ✓";
+      els.copyBtn.classList.add("btn--copied");
+      showToast("Текст скопирован в буфер обмена");
       setStatus("Скопировано в буфер обмена", "ok");
+      window.setTimeout(() => {
+        els.copyBtn.textContent = label;
+        els.copyBtn.classList.remove("btn--copied");
+      }, 1800);
     } catch (error) {
+      showToast("Браузер запретил копирование — выделите текст вручную");
       setStatus("Браузер запретил доступ к буферу обмена — выделите текст вручную", "error");
     }
   }
@@ -600,6 +653,8 @@
     els.apiKey.type = visible ? "password" : "text";
     els.toggleKey.setAttribute("aria-pressed", String(!visible));
     els.toggleKey.setAttribute("aria-label", visible ? "Показать ключ" : "Скрыть ключ");
+    setHidden(els.eyeOn, !visible);
+    setHidden(els.eyeOff, visible);
   });
 
   els.forgetKey.addEventListener("click", forgetKey);
