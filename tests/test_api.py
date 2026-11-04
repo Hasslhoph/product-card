@@ -70,6 +70,16 @@ def test_empty_product_name_returns_422_with_field() -> None:
     assert detail[0]["field"] == "name"
 
 
+def test_validation_message_is_human_readable() -> None:
+    response = client.post("/api/analyze", json={"product": {"name": "   ", "specs": {}}})
+
+    detail = response.json()["detail"][0]
+    assert detail["field"] == "name"
+    assert detail["title"] == "Название товара"
+    assert detail["message"] == "не может быть пустым"
+    assert "String should" not in response.text
+
+
 def test_broken_specs_type_returns_422() -> None:
     response = client.post("/api/analyze", json={"product": {"name": "Прибор", "specs": 42}})
 

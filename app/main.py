@@ -169,19 +169,48 @@ class ModelsRequest(BaseModel):
     refresh: bool = False
 
 
+#: Человеческие названия полей — сообщения читает контент-менеджер, а не разработчик.
+FIELD_TITLES = {
+    "name": "Название товара",
+    "manufacturer": "Производитель",
+    "specs": "Характеристики",
+    "description": "Описание",
+}
+
+
+def _humanize_error(error: dict[str, Any]) -> dict[str, str]:
+    """Переводит ошибку валидатора в понятную фразу на русском."""
+    loc = [str(part) for part in error.get("loc", ()) if part != "product"]
+    field = ".".join(loc) or "product"
+    title = FIELD_TITLES.get(loc[0] if loc else "", "Поле")
+    error_type = error.get("type", "")
+    limits = error.get("ctx") or {}
+
+    if error_type == "string_too_short":
+        message = "не может быть пустым"
+    elif error_type == "string_too_long":
+        message = f"слишком длинное значение, максимум {limits.get('max_length')} символов"
+    elif error_type == "missing":
+        message = "обязательное поле не заполнено"
+    elif error_type == "string_type":
+        message = "ожидается текст"
+    elif error_type in {"dict_type", "list_type"}:
+        message = "ожидается объект или список пар «название — значение»"
+    elif error_type == "value_error":
+        message = str(error.get("msg", "")).removeprefix("Value error, ")
+    else:
+        message = "некорректное значение"
+
+    return {"field": field, "title": title, "message": message}
+
+
 def _parse_product(raw: dict[str, Any]) -> ProductInput:
     try:
         return ProductInput.model_validate(raw)
     except ValidationError as exc:
         raise HTTPException(
             status_code=422,
-            detail=[
-                {
-                    "field": ".".join(str(part) for part in error["loc"]) or "product",
-                    "message": error["msg"],
-                }
-                for error in exc.errors()
-            ],
+            detail=[_humanize_error(error) for error in exc.errors()],
         ) from None
 
 

@@ -46,7 +46,7 @@ class ProductInput(BaseModel):
                 elif isinstance(item, (list, tuple)) and len(item) == 2:
                     raw.append((item[0], item[1]))
         else:
-            raise ValueError("specs должен быть объектом или списком пар")
+            raise ValueError("ожидается объект или список пар «название — значение»")
 
         result: dict[str, str] = {}
         for key, value in raw:

@@ -88,7 +88,11 @@
     if (typeof detail === "string") return detail;
     if (Array.isArray(detail)) {
       return detail
-        .map((item) => (item && item.field ? `${item.field}: ${item.message}` : String(item)))
+        .map((item) => {
+          if (!item || !item.field) return String(item);
+          const label = item.title || item.field;
+          return `${label}: ${item.message}`;
+        })
         .join("\n");
     }
     if (typeof detail === "object" && detail.message) return detail.message;
@@ -129,12 +133,60 @@
     return payload;
   }
 
+  function humanizeJsonError(error, text) {
+    if (!text.trim()) {
+      return { message: "Поле JSON пустое — вставьте данные товара или выберите пример.", position: null };
+    }
+
+    const original = String(error.message || "");
+    const posMatch = original.match(/position (\d+)/i);
+    const lineColMatch = original.match(/line (\d+) column (\d+)/i);
+    const position = posMatch ? Number(posMatch[1]) : null;
+
+    let line = lineColMatch ? Number(lineColMatch[1]) : null;
+    let column = lineColMatch ? Number(lineColMatch[2]) : null;
+    if (line === null && position !== null) {
+      const before = text.slice(0, position);
+      line = before.split("\n").length;
+      column = position - before.lastIndexOf("\n");
+    }
+
+    let hint = "проверьте кавычки, запятые и скобки";
+    if (/double-quoted property name/i.test(original)) {
+      hint = "ожидается имя свойства в двойных кавычках — вероятно, лишняя запятая или пропущены кавычки";
+    } else if (/unexpected end/i.test(original)) {
+      hint = "JSON обрывается — не хватает закрывающей скобки или кавычки";
+    } else if (/unexpected token/i.test(original)) {
+      hint = "лишний или недопустимый символ";
+    } else if (/expected (',' or '\}'|property name or '\}')/i.test(original)) {
+      hint = "пропущена запятая или закрывающая скобка";
+    } else if (/single quotes/i.test(original)) {
+      hint = "строки должны быть в двойных кавычках, а не в одинарных";
+    }
+
+    const where = line ? `, строка ${line}, колонка ${column}` : "";
+    return { message: `Некорректный JSON${where}: ${hint}.`, position };
+  }
+
+  function focusJsonPosition(position) {
+    if (typeof position !== "number" || Number.isNaN(position)) return;
+    try {
+      els.productJson.focus();
+      els.productJson.setSelectionRange(position, Math.min(position + 1, els.productJson.value.length));
+    } catch (error) {
+      /* подсветка — необязательное удобство */
+    }
+  }
+
   function readProduct() {
     let parsed;
+    const raw = els.productJson.value;
     try {
-      parsed = JSON.parse(els.productJson.value);
+      parsed = JSON.parse(raw);
     } catch (error) {
-      throw new Error(`Некорректный JSON: ${error.message}`);
+      const human = humanizeJsonError(error, raw);
+      focusJsonPosition(human.position);
+      throw new Error(human.message);
     }
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       throw new Error("Ожидается JSON-объект с полями name, manufacturer, specs, description");
