@@ -1,0 +1,664 @@
+{
+  "info": {
+    "_postman_id": "89a57875-76a1-4bef-97ee-3dd6f34635b3",
+    "name": "Карточка товара — API",
+    "description": "Демонстрация сервиса подготовки товарных описаний.\n\nПорядок: «Служебное» → «Проверка данных» → «Сессия и ключ» → «Генерация».\n\nПеред запуском задайте в переменных коллекции `baseUrl`, `provider`, `model` и `apiKey` (ключ хранится только локально, в репозиторий не попадает).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8000",
+      "type": "string"
+    },
+    {
+      "key": "provider",
+      "value": "openai_compatible",
+      "type": "string"
+    },
+    {
+      "key": "model",
+      "value": "deepseek-v4.1-flash",
+      "type": "string"
+    },
+    {
+      "key": "apiKey",
+      "value": "",
+      "type": "secret"
+    },
+    {
+      "key": "lastMarkdown",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "lastTitle",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Служебное",
+      "description": "Проверка, что сервис поднят и отдаёт справочники.",
+      "item": [
+        {
+          "name": "Проверка живости",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Возвращает `{\"status\": \"ok\"}`. Быстрый способ убедиться, что сервер запущен."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"сервис отвечает\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"статус ok\", () => pm.expect(pm.response.json().status).to.eql(\"ok\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Провайдеры и модель по умолчанию",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/providers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "providers"
+              ]
+            },
+            "description": "Список доступных провайдеров и провайдер по умолчанию (берётся из .env)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"список провайдеров не пустой\", () => {",
+                  "  pm.expect(pm.response.json().providers.length).to.be.above(0);",
+                  "});",
+                  "pm.test(\"есть провайдер по умолчанию\", () => {",
+                  "  pm.expect(pm.response.json()).to.have.property(\"default_provider\");",
+                  "});",
+                  "const payload = pm.response.json();",
+                  "pm.collectionVariables.set(\"provider\", payload.default_provider);",
+                  "if (payload.default_model) pm.collectionVariables.set(\"model\", payload.default_model);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Примеры товаров",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/examples",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "examples"
+              ]
+            },
+            "description": "Готовые примеры из каталога `examples/`. Первый пример сохраняется в переменную `exampleProduct`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const payload = pm.response.json();",
+                  "pm.test(\"примеры есть\", () => pm.expect(payload.examples.length).to.be.at.least(2));",
+                  "pm.collectionVariables.set(\"exampleProduct\", JSON.stringify(payload.examples[0].payload));",
+                  "console.log(\"Загружен пример:\", payload.examples[0].title);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Проверка данных",
+      "description": "Детерминированная проверка полноты — без обращения к модели, без затрат.",
+      "item": [
+        {
+          "name": "Полный товар: данных достаточно",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/analyze",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "analyze"
+              ]
+            },
+            "description": "Определяет семейство прибора и перечисляет отсутствующие характеристики.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product\": {\n    \"name\": \"Манометр показывающий МП3-У\",\n    \"manufacturer\": \"Манотомь\",\n    \"specs\": {\n      \"Диапазон измерений\": \"0–100 кгс/см²\",\n      \"Класс точности\": \"1,5\",\n      \"Диаметр корпуса\": \"100 мм\",\n      \"Присоединение\": \"М20×1,5 или G1/2\",\n      \"Степень защиты\": \"IP40\",\n      \"Масса\": \"не более 0,7 кг\"\n    },\n    \"description\": \"Прибор предназначен для измерения избыточного давления неагрессивных, некристаллизующихся жидкостей, пара и газа. Область применения: теплоснабжение, водоснабжение, вентиляция, машиностроение.\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"статус 200\", () => pm.response.to.have.status(200));",
+                  "const report = pm.response.json();",
+                  "pm.test(\"семейство определено как манометр\", () => {",
+                  "  pm.expect(report.family).to.eql(\"manometer\");",
+                  "});",
+                  "pm.test(\"найдены присутствующие характеристики\", () => {",
+                  "  pm.expect(report.present.length).to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Неполный товар: список того, что уточнить",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/analyze",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "analyze"
+              ]
+            },
+            "description": "У прибора нет диапазона и выходного сигнала — сервис должен их перечислить.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product\": {\n    \"name\": \"Преобразователь давления\",\n    \"manufacturer\": \"\",\n    \"specs\": {\n      \"Питание\": \"24 В\"\n    },\n    \"description\": \"Компактный преобразователь давления для промышленных систем автоматизации.\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const report = pm.response.json();",
+                  "pm.test(\"семейство — преобразователь давления\", () => {",
+                  "  pm.expect(report.family).to.eql(\"pressure_transmitter\");",
+                  "});",
+                  "pm.test(\"диапазон измерений отмечен как отсутствующий\", () => {",
+                  "  pm.expect(report.missing).to.include(\"Диапазон измерений\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Некорректные данные: понятная ошибка",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/analyze",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "analyze"
+              ]
+            },
+            "description": "Пустое название товара → 422 с человеческим сообщением на русском.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product\": {\n    \"name\": \"\",\n    \"specs\": {}\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"статус 422\", () => pm.response.to.have.status(422));",
+                  "const detail = pm.response.json().detail[0];",
+                  "pm.test(\"ошибка указывает на название товара\", () => {",
+                  "  pm.expect(detail.field).to.eql(\"name\");",
+                  "});",
+                  "pm.test(\"сообщение на русском\", () => {",
+                  "  pm.expect(detail.message).to.eql(\"не может быть пустым\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Сессия и ключ",
+      "description": "Ключ можно не передавать в каждом запросе: он сохраняется в серверной сессии, а браузер/клиент получает только HttpOnly-cookie и маску `••••a1b2`.",
+      "item": [
+        {
+          "name": "Сохранить ключ в сессии",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/session",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "session"
+              ]
+            },
+            "description": "Ключ берётся из переменной `apiKey`. Если она пустая — запрос ничего не сохранит.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"{{provider}}\",\n  \"model\": \"{{model}}\",\n  \"api_key\": \"{{apiKey}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "const key = pm.variables.get(\"apiKey\");",
+                  "pm.test(key ? \"ключ сохранён\" : \"ключ не задан — проверка пропущена\", () => {",
+                  "  if (!key) return true;",
+                  "  return body.has_key === true;",
+                  "});",
+                  "pm.test(\"в ответе только маска, без самого ключа\", () => {",
+                  "  if (!key) return true;",
+                  "  return !JSON.stringify(body).includes(key);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Что сохранено",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/session",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "session"
+              ]
+            },
+            "description": "Возвращает признак наличия ключа и его маску. Сам ключ не отдаётся никогда."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test(\"ответ не содержит поля с ключом\", () => {",
+                  "  pm.expect(body).to.not.have.property(\"api_key\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Забыть ключ",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/session",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "session"
+              ]
+            },
+            "description": "Удаляет ключ из памяти сервера и сбрасывает cookie."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"ключ удалён\", () => {",
+                  "  pm.expect(pm.response.json().has_key).to.eql(false);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Генерация карточки",
+      "description": "Основной сценарий: черновик карточки в трёх форматах.",
+      "item": [
+        {
+          "name": "Офлайн-демо (без ключа)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/generate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "generate"
+              ]
+            },
+            "description": "Провайдер `mock` собирает карточку по шаблону из входных данных — быстро и без затрат. Удобно для записи демо.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product\": {\n    \"name\": \"Манометр показывающий МП3-У\",\n    \"manufacturer\": \"Манотомь\",\n    \"specs\": {\n      \"Диапазон измерений\": \"0–100 кгс/см²\",\n      \"Класс точности\": \"1,5\",\n      \"Диаметр корпуса\": \"100 мм\",\n      \"Присоединение\": \"М20×1,5 или G1/2\",\n      \"Степень защиты\": \"IP40\",\n      \"Масса\": \"не более 0,7 кг\"\n    },\n    \"description\": \"Прибор предназначен для измерения избыточного давления неагрессивных, некристаллизующихся жидкостей, пара и газа. Область применения: теплоснабжение, водоснабжение, вентиляция, машиностроение.\"\n  },\n  \"llm\": {\n    \"provider\": \"mock\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"статус 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"есть все четыре представления\", () => {",
+                  "  pm.expect(body).to.have.all.keys(\"card\", \"markdown\", \"text\", \"json\", \"meta\");",
+                  "});",
+                  "pm.test(\"заголовок не длиннее 70 символов\", () => {",
+                  "  pm.expect(body.card.seo_title.length).to.be.at.most(70);",
+                  "});",
+                  "pm.test(\"описание 800–1200 символов\", () => {",
+                  "  pm.expect(body.card.seo_description.length).to.be.within(800, 1200);",
+                  "});",
+                  "pm.test(\"3–5 поисковых запросов\", () => {",
+                  "  pm.expect(body.card.search_queries.length).to.be.within(3, 5);",
+                  "});",
+                  "pm.test(\"характеристики заполнены значениями\", () => {",
+                  "  body.card.characteristics.forEach((item) => pm.expect(item.value).to.be.a(\"string\").and.not.empty);",
+                  "});",
+                  "pm.collectionVariables.set(\"lastMarkdown\", body.markdown);",
+                  "pm.collectionVariables.set(\"lastTitle\", body.card.seo_title);",
+                  "console.log(\"Провайдер:\", body.meta.provider, \"| модель:\", body.meta.model, \"| время:\", body.meta.elapsed_ms, \"мс\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Реальная модель через сессию",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/generate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "generate"
+              ]
+            },
+            "description": "Ключ не передаётся в теле — используется сохранённый в сессии. Провайдер и модель берутся из переменных коллекции, адрес endpoint'а — из настроек сервера.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product\": {\n    \"name\": \"Манометр показывающий МП3-У\",\n    \"manufacturer\": \"Манотомь\",\n    \"specs\": {\n      \"Диапазон измерений\": \"0–100 кгс/см²\",\n      \"Класс точности\": \"1,5\",\n      \"Диаметр корпуса\": \"100 мм\",\n      \"Присоединение\": \"М20×1,5 или G1/2\",\n      \"Степень защиты\": \"IP40\",\n      \"Масса\": \"не более 0,7 кг\"\n    },\n    \"description\": \"Прибор предназначен для измерения избыточного давления неагрессивных, некристаллизующихся жидкостей, пара и газа. Область применения: теплоснабжение, водоснабжение, вентиляция, машиностроение.\"\n  },\n  \"llm\": {\n    \"provider\": \"{{provider}}\",\n    \"model\": \"{{model}}\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"статус 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"есть все четыре представления\", () => {",
+                  "  pm.expect(body).to.have.all.keys(\"card\", \"markdown\", \"text\", \"json\", \"meta\");",
+                  "});",
+                  "pm.test(\"заголовок не длиннее 70 символов\", () => {",
+                  "  pm.expect(body.card.seo_title.length).to.be.at.most(70);",
+                  "});",
+                  "pm.test(\"описание 800–1200 символов\", () => {",
+                  "  pm.expect(body.card.seo_description.length).to.be.within(800, 1200);",
+                  "});",
+                  "pm.test(\"3–5 поисковых запросов\", () => {",
+                  "  pm.expect(body.card.search_queries.length).to.be.within(3, 5);",
+                  "});",
+                  "pm.test(\"характеристики заполнены значениями\", () => {",
+                  "  body.card.characteristics.forEach((item) => pm.expect(item.value).to.be.a(\"string\").and.not.empty);",
+                  "});",
+                  "pm.collectionVariables.set(\"lastMarkdown\", body.markdown);",
+                  "pm.collectionVariables.set(\"lastTitle\", body.card.seo_title);",
+                  "console.log(\"Провайдер:\", body.meta.provider, \"| модель:\", body.meta.model, \"| время:\", body.meta.elapsed_ms, \"мс\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Реальная модель с ключом в теле",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/generate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "generate"
+              ]
+            },
+            "description": "Ключ передаётся явно из переменной `apiKey` — разовый вызов без сессии.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product\": {\n    \"name\": \"Манометр показывающий МП3-У\",\n    \"manufacturer\": \"Манотомь\",\n    \"specs\": {\n      \"Диапазон измерений\": \"0–100 кгс/см²\",\n      \"Класс точности\": \"1,5\",\n      \"Диаметр корпуса\": \"100 мм\",\n      \"Присоединение\": \"М20×1,5 или G1/2\",\n      \"Степень защиты\": \"IP40\",\n      \"Масса\": \"не более 0,7 кг\"\n    },\n    \"description\": \"Прибор предназначен для измерения избыточного давления неагрессивных, некристаллизующихся жидкостей, пара и газа. Область применения: теплоснабжение, водоснабжение, вентиляция, машиностроение.\"\n  },\n  \"llm\": {\n    \"provider\": \"{{provider}}\",\n    \"model\": \"{{model}}\",\n    \"api_key\": \"{{apiKey}}\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"статус 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"есть все четыре представления\", () => {",
+                  "  pm.expect(body).to.have.all.keys(\"card\", \"markdown\", \"text\", \"json\", \"meta\");",
+                  "});",
+                  "pm.test(\"заголовок не длиннее 70 символов\", () => {",
+                  "  pm.expect(body.card.seo_title.length).to.be.at.most(70);",
+                  "});",
+                  "pm.test(\"описание 800–1200 символов\", () => {",
+                  "  pm.expect(body.card.seo_description.length).to.be.within(800, 1200);",
+                  "});",
+                  "pm.test(\"3–5 поисковых запросов\", () => {",
+                  "  pm.expect(body.card.search_queries.length).to.be.within(3, 5);",
+                  "});",
+                  "pm.test(\"характеристики заполнены значениями\", () => {",
+                  "  body.card.characteristics.forEach((item) => pm.expect(item.value).to.be.a(\"string\").and.not.empty);",
+                  "});",
+                  "pm.collectionVariables.set(\"lastMarkdown\", body.markdown);",
+                  "pm.collectionVariables.set(\"lastTitle\", body.card.seo_title);",
+                  "console.log(\"Провайдер:\", body.meta.provider, \"| модель:\", body.meta.model, \"| время:\", body.meta.elapsed_ms, \"мс\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Неполные данные: «данных нет»",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/generate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "generate"
+              ]
+            },
+            "description": "Модель не должна придумывать характеристики: отсутствующие значения помечаются «данных нет», а в `missing_data` попадает список для уточнения.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product\": {\n    \"name\": \"Преобразователь давления\",\n    \"manufacturer\": \"\",\n    \"specs\": {\n      \"Питание\": \"24 В\"\n    },\n    \"description\": \"Компактный преобразователь давления для промышленных систем автоматизации.\"\n  },\n  \"llm\": {\n    \"provider\": \"mock\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const card = pm.response.json().card;",
+                  "pm.test(\"отсутствующие данные помечены\", () => {",
+                  "  pm.expect(card.missing_data.length).to.be.above(0);",
+                  "});",
+                  "pm.test(\"в характеристиках есть «данных нет»\", () => {",
+                  "  const values = card.characteristics.map((item) => item.value);",
+                  "  pm.expect(values).to.include(\"данных нет\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
