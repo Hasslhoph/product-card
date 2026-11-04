@@ -73,10 +73,27 @@
   }
 
   async function api(path, options = {}) {
-    const response = await fetch(path, {
-      headers: { "Content-Type": "application/json" },
-      ...options,
-    });
+    const { timeout = 180000, ...rest } = options;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeout);
+    let response;
+    try {
+      response = await fetch(path, {
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        ...rest,
+      });
+    } catch (error) {
+      if (error.name === "AbortError") {
+        throw new Error(
+          `Превышено время ожидания ответа (${Math.round(timeout / 1000)} с). ` +
+            "Проверьте соединение, провайдера и ключ — и попробуйте снова."
+        );
+      }
+      throw new Error(`Сервис недоступен: ${error.message}`);
+    } finally {
+      window.clearTimeout(timer);
+    }
     let payload = null;
     try {
       payload = await response.json();
@@ -298,6 +315,7 @@
     els.modelHint.textContent = "Загружаем список моделей…";
     try {
       const data = await api("/api/models", {
+        timeout: 45000,
         method: "POST",
         body: JSON.stringify({
           provider: els.provider.value,
@@ -307,6 +325,9 @@
         }),
       });
       setModels(data.models, data.note || "Начните вводить — список отфильтруется. Можно указать своё название.");
+      if (!els.model.value.trim()) {
+        els.model.value = provider.default_model || (data.models && data.models[0]) || "";
+      }
       if (data.source === "provider") {
         els.modelHint.textContent = "Список загружен у провайдера. Можно ввести и своё название.";
       }
