@@ -245,9 +245,14 @@ def _resolve_options(options: LLMOptions, session: ClientSession | None = None) 
     # Ключ: запрос → сессия (только для её endpoint'а) → .env (только для своего).
     api_key = (options.api_key or "").strip()
     if not api_key and session and session.api_key:
+        # Если в сессии адрес не сохранён, значит ключ вводили для endpoint'а
+        # из настроек сервера — сравниваем именно с ним.
+        session_base = (session.base_url or "").strip()
+        if not session_base and provider == settings.provider:
+            session_base = settings.base_url
         session_matches = (
             (not session.provider or session.provider == provider)
-            and (session.base_url or "").rstrip("/") == (base_url or "").rstrip("/")
+            and session_base.rstrip("/") == (base_url or "").rstrip("/")
         )
         if session_matches:
             api_key = session.api_key
@@ -293,6 +298,7 @@ def providers() -> dict[str, Any]:
     return {
         "default_provider": settings.provider if settings.provider in SUPPORTED_PROVIDERS else "mock",
         "default_model": settings.model,
+        "default_base_url": settings.base_url,
         "providers": [
             {
                 "id": provider,
@@ -395,8 +401,11 @@ async def models(
 
     api_key = (payload.api_key or "").strip()
     if not api_key and session and session.api_key:
+        session_base = (session.base_url or "").strip()
+        if not session_base and provider == settings.provider:
+            session_base = settings.base_url
         if (not session.provider or session.provider == provider) and (
-            (session.base_url or "").rstrip("/") == base_url.rstrip("/")
+            session_base.rstrip("/") == base_url.rstrip("/")
         ):
             api_key = session.api_key
     if not api_key and provider == settings.provider and (

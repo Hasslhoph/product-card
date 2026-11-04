@@ -281,6 +281,7 @@
       state.providers.find((item) => item.id === data.default_provider) || state.providers[0];
     els.provider.value = (preferred || {}).id || "";
     if (data.default_model) els.model.value = data.default_model;
+    if (data.default_base_url) els.baseUrl.placeholder = data.default_base_url;
     syncProviderFields();
   }
 

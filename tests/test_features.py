@@ -115,6 +115,36 @@ def test_session_key_is_not_sent_to_another_endpoint(monkeypatch, public_dns) ->
     assert options["api_key"] == ""
 
 
+def test_session_key_is_used_when_base_url_was_not_saved(monkeypatch) -> None:
+    """Ключ вводили при пустом поле Base URL — сервер подставлял адрес из настроек."""
+    monkeypatch.setenv("LLM_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.example.com/v1")
+    monkeypatch.setenv("LLM_API_KEY", "")
+    session = ClientSession(
+        provider="openai_compatible",
+        api_key="sk-from-session",
+        base_url="",
+    )
+
+    options = _resolve_options(LLMOptions(provider="openai_compatible"), session)
+
+    assert options["api_key"] == "sk-from-session"
+    assert options["base_url"] == "https://api.example.com/v1"
+
+
+def test_session_key_without_base_url_is_not_sent_to_another_host(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.example.com/v1")
+    monkeypatch.setenv("LLM_API_KEY", "")
+    session = ClientSession(provider="openai_compatible", api_key="sk-from-session", base_url="")
+
+    options = _resolve_options(
+        LLMOptions(provider="openai_compatible", base_url="https://example.com/v1"), session
+    )
+
+    assert options["api_key"] == ""
+
+
 def test_request_key_wins_over_session(monkeypatch) -> None:
     monkeypatch.setenv("LLM_PROVIDER", "openai_compatible")
     monkeypatch.setenv("LLM_BASE_URL", "https://api.example.com/v1")
