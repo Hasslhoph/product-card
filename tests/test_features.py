@@ -54,7 +54,7 @@ def test_session_store_clears_key() -> None:
     assert store.get("id-2") is None
 
 
-def test_session_endpoint_saves_key_and_hides_it() -> None:
+def test_session_endpoint_saves_key_and_hides_it(public_dns) -> None:
     with TestClient(app) as client:
         saved = client.post(
             "/api/session",
@@ -98,7 +98,7 @@ def test_session_key_is_used_for_its_own_endpoint(monkeypatch) -> None:
     assert options["base_url"] == "https://api.example.com/v1"
 
 
-def test_session_key_is_not_sent_to_another_endpoint(monkeypatch) -> None:
+def test_session_key_is_not_sent_to_another_endpoint(monkeypatch, public_dns) -> None:
     monkeypatch.setenv("LLM_PROVIDER", "openai_compatible")
     monkeypatch.setenv("LLM_BASE_URL", "https://api.example.com/v1")
     monkeypatch.setenv("LLM_API_KEY", "sk-from-env")

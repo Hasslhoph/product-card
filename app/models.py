@@ -65,11 +65,20 @@ class ProductInput(BaseModel):
                 break
         return result
 
-    def source_text(self) -> str:
-        """Всё, что было на входе, одной строкой — источник правды для проверок."""
-        parts = [self.name, self.manufacturer, self.description]
+    def fact_text(self) -> str:
+        """Факты для проверок: производитель, описание и характеристики.
+
+        Название товара сюда не входит: цифры из артикула (МП3-У → «3»)
+        не должны подтверждать произвольные утверждения вроде «класс точности 3».
+        """
+        parts = [self.manufacturer, self.description]
         parts.extend(self.specs.keys())
         parts.extend(self.specs.values())
+        return ". ".join(part for part in parts if part)
+
+    def source_text(self) -> str:
+        """Полный вход одной строкой — для отображения и обратной совместимости."""
+        parts = [self.name, self.fact_text()]
         return ". ".join(part for part in parts if part)
 
 

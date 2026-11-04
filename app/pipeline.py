@@ -178,7 +178,7 @@ def _normalize_card(
     return card, warnings
 
 
-def collect_problems(card: ProductCard, source: str) -> list[str]:
+def collect_problems(card: ProductCard, source: str, *, name: str = "") -> list[str]:
     """Нарушения требований задания, которые видны без семантики."""
     problems: list[str] = []
 
@@ -218,7 +218,7 @@ def collect_problems(card: ProductCard, source: str) -> list[str]:
             " ".join(card.search_queries),
         ]
     )
-    unsupported = find_unsupported_numbers(text, source)
+    unsupported = find_unsupported_numbers(text, source, name=name)
     unsupported_claims = find_unsupported_claims(text, source)
     if unsupported:
         problems.append(
@@ -278,7 +278,7 @@ def _fit_queries(
     removed_claims: list[str] = []
 
     for query in queries:
-        bad_numbers = find_unsupported_numbers(query, source)
+        bad_numbers = find_unsupported_numbers(query, source, name=product.name)
         bad_claims = find_unsupported_claims(query, source)
         if bad_numbers or bad_claims:
             removed_numbers.extend(n for n in bad_numbers if n not in removed_numbers)
@@ -308,23 +308,27 @@ def _finalize(
     builder_warnings: list[str],
 ) -> None:
     """Детерминированная доводка карточки после ответа модели."""
-    source = product.source_text()
+    source = product.fact_text()
     warnings: list[str] = list(builder_warnings)
 
     removed_numbers: list[str] = []
     removed_claims: list[str] = []
 
-    title, numbers, claims = sanitize_unsupported(card.seo_title, source)
+    title, numbers, claims = sanitize_unsupported(card.seo_title, source, name=product.name)
     removed_numbers.extend(numbers)
     removed_claims.extend(claims)
     card.seo_title = _truncate_title(title, product.name)
 
-    description, numbers, claims = sanitize_unsupported(card.seo_description, source)
+    description, numbers, claims = sanitize_unsupported(
+        card.seo_description, source, name=product.name
+    )
     removed_numbers.extend(n for n in numbers if n not in removed_numbers)
     removed_claims.extend(c for c in claims if c not in removed_claims)
     card.seo_description, padded = _fit_description(description)
 
-    commercial, numbers, claims = sanitize_unsupported(card.commercial_block, source)
+    commercial, numbers, claims = sanitize_unsupported(
+        card.commercial_block, source, name=product.name
+    )
     removed_numbers.extend(n for n in numbers if n not in removed_numbers)
     removed_claims.extend(c for c in claims if c not in removed_claims)
     card.commercial_block = commercial.strip()
@@ -348,7 +352,7 @@ def _finalize(
             "до нижней границы объёма."
         )
 
-    remaining = collect_problems(card, source)
+    remaining = collect_problems(card, source, name=product.name)
     if remaining:
         warnings.append("Не удалось исправить автоматически: " + "; ".join(remaining))
 
@@ -383,12 +387,12 @@ async def generate_card(
     missing_titles = [titles.get(key, key) for key in missing_keys]
 
     request = build_request(product, profile.title, missing_titles)
-    source = product.source_text()
+    source = product.fact_text()
 
     raw = await client.complete_json(request)
     data = parse_json_object(raw)
     card, builder_warnings = _normalize_card(data, product, profile.id)
-    problems = collect_problems(card, source)
+    problems = collect_problems(card, source, name=product.name)
     attempts = 1
     repair_notes: list[str] = []
 
@@ -397,7 +401,7 @@ async def generate_card(
             raw = await client.complete_json(build_repair_request(request, problems))
             data = parse_json_object(raw)
             repaired_card, repaired_warnings = _normalize_card(data, product, profile.id)
-            repaired_problems = collect_problems(repaired_card, source)
+            repaired_problems = collect_problems(repaired_card, source, name=product.name)
         except LLMError as exc:
             # Первая версия карточки уже валидна по структуре — не теряем её
             # из-за сбоя повторного запроса.

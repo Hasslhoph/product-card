@@ -86,7 +86,7 @@ def test_unknown_provider_returns_400() -> None:
     assert response.status_code == 400
 
 
-def test_custom_base_url_does_not_receive_server_key(monkeypatch) -> None:
+def test_custom_base_url_does_not_receive_server_key(monkeypatch, public_dns) -> None:
     """Ключ из .env нельзя увести на чужой endpoint, подставив base_url в запросе."""
     monkeypatch.setenv("LLM_PROVIDER", "openai_compatible")
     monkeypatch.setenv("LLM_BASE_URL", "https://api.example.com/v1")

@@ -99,6 +99,22 @@ def test_unknown_device_falls_back_to_generic_profile() -> None:
     assert profile.id == "generic"
 
 
+def test_pressure_transmitter_profile_is_detected() -> None:
+    profile = detect_profile("Преобразователь давления", "Компактный прибор для АСУ ТП.")
+
+    assert profile.id == "pressure_transmitter"
+
+
+def test_manometer_wins_over_pressure_keyword_in_description() -> None:
+    """Слово «давления» в описании манометра не должно сменить семейство."""
+    profile = detect_profile(
+        "Манометр показывающий МП3-У",
+        "Прибор для измерения избыточного давления жидкости.",
+    )
+
+    assert profile.id == "manometer"
+
+
 def test_missing_fields_are_reported_by_synonyms() -> None:
     specs = {"Диаметр корпуса (мм)": "100", "Резьба присоединительного штуцера": "G1/2"}
     missing = find_missing_fields(specs, detect_profile("манометр показывающий", ""))
@@ -160,6 +176,24 @@ def test_substring_number_is_not_confirmed() -> None:
 
     assert find_unsupported_numbers("Давление до 10 бар.", source) == ["10"]
     assert find_unsupported_numbers("Работает при 5 °C.", source) == ["5"]
+
+
+def test_digit_from_model_name_does_not_confirm_arbitrary_claims() -> None:
+    """Цифра из артикула МП3-У не подтверждает выдуманный «класс точности 3»."""
+    facts = "Диаметр корпуса 100 мм. Производитель Манотомь."
+    name = "Манометр показывающий МП3-У"
+
+    assert find_unsupported_numbers("Класс точности 3.", facts, name=name) == ["3"]
+    assert find_unsupported_numbers("Манометр МП3-У, корпус 100 мм", facts, name=name) == []
+
+
+def test_explosion_claim_markers_are_detected() -> None:
+    source = "Диаметр корпуса 100 мм."
+    text = "Для взрывоопасных зон предусмотрено исполнение EXI."
+
+    claims = find_unsupported_claims(text, source)
+    assert "взрывоопас" in claims
+    assert "exi" in claims
 
 
 def test_unsupported_material_claim_is_detected() -> None:

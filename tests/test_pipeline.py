@@ -63,7 +63,7 @@ def test_mock_provider_does_not_invent_numbers() -> None:
     text = " ".join(
         [result.card.seo_title, result.card.seo_description, result.card.commercial_block]
     )
-    assert find_unsupported_numbers(text, product.source_text()) == []
+    assert find_unsupported_numbers(text, product.fact_text(), name=product.name) == []
 
 
 def test_characteristics_are_taken_from_input_verbatim() -> None:
@@ -165,6 +165,25 @@ def test_empty_title_falls_back_to_product_name() -> None:
 
     assert result.card.seo_title
     assert "МП3-У" in result.card.seo_title
+
+
+def test_invented_accuracy_using_model_digit_is_removed() -> None:
+    """«Класс точности 3» не проходит только потому, что в названии есть МП3-У."""
+    import json
+
+    card = build_mock_card(PRODUCT_JSON)
+    card["seo_description"] = (
+        "Манометр МП3-У для измерения давления.\n\n"
+        "Класс точности 3.\n\n"
+        "Диаметр корпуса 100 мм.\n\n"
+        "Прибор подходит для промышленных задач контроля давления."
+    )
+    client = ScriptedClient([json.dumps(card, ensure_ascii=False)])
+
+    result = asyncio.run(generate_card(_product(), client, max_repairs=0))
+
+    assert "класс точности 3" not in result.card.seo_description.lower()
+    assert any("3" in warning for warning in result.card.warnings)
 
 
 def test_query_with_invented_number_is_dropped() -> None:

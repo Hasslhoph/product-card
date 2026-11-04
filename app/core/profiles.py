@@ -208,6 +208,50 @@ FLOWMETER = Profile(
     ),
 )
 
+PRESSURE_TRANSMITTER = Profile(
+    id="pressure_transmitter",
+    title="Преобразователь / датчик давления",
+    keywords=(
+        "преобразователь давления",
+        "датчик давления",
+        "преобразовател давления",
+        "давления",
+    ),
+    fields=(
+        SpecField(
+            "диапазон измерений",
+            "Диапазон измерений",
+            ("диапазон измерений", "диапазон давления", "диапазон"),
+            required=True,
+            hint="в каких пределах измеряется давление",
+        ),
+        SpecField(
+            "питание",
+            "Питание",
+            ("питание", "напряжение питания", "напряжение"),
+            required=True,
+            hint="напряжение питания прибора",
+        ),
+        SpecField(
+            "выходной сигнал",
+            "Выходной сигнал",
+            ("выходной сигнал", "выход", "интерфейс", "4-20", "0-10"),
+            required=True,
+            hint="тип аналогового или цифрового выхода",
+        ),
+        SpecField(
+            "класс точности",
+            "Класс точности",
+            ("класс точности", "точность", "погрешность"),
+            hint="допустимая погрешность",
+        ),
+        SpecField("присоединение", "Присоединение", ("присоединение", "резьба", "штуцер")),
+        SpecField("степень защиты", "Степень защиты", ("степень защиты", "ip")),
+        SpecField("габариты", "Габариты", ("габариты", "габаритные размеры")),
+        SpecField("масса", "Масса", ("масса", "вес")),
+    ),
+)
+
 GENERIC = Profile(
     id="generic",
     title="Прибор КИП (универсальный профиль)",
@@ -223,7 +267,14 @@ GENERIC = Profile(
     ),
 )
 
-ALL_PROFILES: tuple[Profile, ...] = (MANOMETER, THERMOMETER, GAS_ANALYZER, FLOWMETER, GENERIC)
+ALL_PROFILES: tuple[Profile, ...] = (
+    MANOMETER,
+    THERMOMETER,
+    GAS_ANALYZER,
+    FLOWMETER,
+    PRESSURE_TRANSMITTER,
+    GENERIC,
+)
 
 
 def get_profile(profile_id: str) -> Profile:
